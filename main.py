@@ -18,7 +18,6 @@ app = Flask(__name__)
 # --- ការកំណត់ Environment Variables ---
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
-# បន្ថែម Topic ID (ប្រសិនបើទុកទទេ វានឹងផ្ញើចូល General Topic)
 TELEGRAM_TOPIC_ID = os.getenv('TELEGRAM_TOPIC_ID', '') 
 
 SPREADSHEET_ID = os.getenv('SPREADSHEET_ID', '')
@@ -31,23 +30,16 @@ report_cache = {}
 CACHE_VERSION = 1
 
 # ==========================================
-# Telegram APIs (Update ឲ្យស្គាល់ Topic)
+# Telegram APIs
 # ==========================================
 def telegram_api(method, payload, is_multipart=False):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
-    
-    # បន្ថែម message_thread_id ចូលក្នុង Payload ប្រសិនបើមានការកំណត់ Topic ID
     if TELEGRAM_TOPIC_ID:
-        if is_multipart:
-            payload['data']['message_thread_id'] = TELEGRAM_TOPIC_ID
-        else:
-            payload['message_thread_id'] = TELEGRAM_TOPIC_ID
-
+        if is_multipart: payload['data']['message_thread_id'] = TELEGRAM_TOPIC_ID
+        else: payload['message_thread_id'] = TELEGRAM_TOPIC_ID
     try:
-        if is_multipart:
-            requests.post(url, files=payload['files'], data=payload['data'], timeout=30)
-        else:
-            requests.post(url, json=payload, timeout=5)
+        if is_multipart: requests.post(url, files=payload['files'], data=payload['data'], timeout=30)
+        else: requests.post(url, json=payload, timeout=5)
     except Exception as e:
         print(f"Telegram API Error ({method}):", e)
 
@@ -57,7 +49,6 @@ def send_simple_message(chat_id, text, reply_markup=None):
     telegram_api("sendMessage", payload)
 
 def edit_message_text(chat_id, message_id, text, reply_markup=None):
-    # ការ Edit សារចាស់ មិនត្រូវការ thread_id ទេ ព្រោះវាស្គាល់តាម message_id រួចហើយ
     payload = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML"}
     if reply_markup: payload["reply_markup"] = reply_markup
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
@@ -88,9 +79,7 @@ def get_google_sheet():
 def fetch_report_data(target_date, is_monthly=False):
     ss = get_google_sheet()
     if not ss: return None, False
-    
-    today_month_search = target_date.strftime("%Y-%m")
-    today_for_search = target_date.strftime("%Y-%m-%d")
+    today_month_search, today_for_search = target_date.strftime("%Y-%m"), target_date.strftime("%Y-%m-%d")
     target_y, target_m = target_date.year, target_date.month
     has_data = False
     pages_data = []
@@ -100,21 +89,16 @@ def fetch_report_data(target_date, is_monthly=False):
             worksheet = ss.worksheet(page_name)
             data = worksheet.get_all_values()
         except: continue
-        
         if len(data) <= 4: continue
-
         target_string = str(data[2][0]) if len(data[2]) > 0 else "0"
         match = re.search(r'\d+(\.\d+)?', target_string)
         target_amount = float(match.group(0)) if match else 0.0
-        
         num_chat = online_booking = visit = close_deal = package_count = 0
         total_sale_amount = 0.0
-
         for i in range(4, len(data)):
             row = data[i]
             if len(row) < 2 or not row[1]: continue
             str_date = str(row[1]).strip()
-            
             is_match = False
             try:
                 p_date = parser.parse(str_date)
@@ -125,7 +109,6 @@ def fetch_report_data(target_date, is_monthly=False):
             except:
                 if is_monthly and str_date.startswith(today_month_search): is_match = True
                 elif not is_monthly and str_date == today_for_search: is_match = True
-
             if is_match:
                 num_chat += 1
                 if len(row) > 7:
@@ -135,7 +118,6 @@ def fetch_report_data(target_date, is_monthly=False):
                 if len(row) > 10 and str(row[10]) in ['1', 'TRUE', 'true']: visit += 1
                 if len(row) > 11 and str(row[11]) in ['1', 'TRUE', 'true']: package_count += 1
                 if len(row) > 12 and str(row[12]) in ['1', 'TRUE', 'true']: close_deal += 1
-
         if num_chat > 0 or total_sale_amount > 0:
             has_data = True
             rate_booking = f"{(online_booking / num_chat) * 100:.2f}" if num_chat > 0 else "0.00"
@@ -143,7 +125,6 @@ def fetch_report_data(target_date, is_monthly=False):
             rate_close_deal = f"{(close_deal / num_chat) * 100:.2f}" if num_chat > 0 else "0.00"
             rate_package = f"{(package_count / close_deal) * 100:.2f}" if close_deal > 0 else "0.00"
             rate_sale = f"{(total_sale_amount / target_amount) * 100:.2f}" if target_amount > 0 else "0.00"
-
             pages_data.append({
                 "page_name": page_name, "num_chat": num_chat, "online_booking": online_booking, 
                 "visit": visit, "close_deal": close_deal, "package_count": package_count,
@@ -151,7 +132,6 @@ def fetch_report_data(target_date, is_monthly=False):
                 "rate_booking": rate_booking, "rate_visit": rate_visit, 
                 "rate_close_deal": rate_close_deal, "rate_package": rate_package, "rate_sale": rate_sale
             })
-
     return {"display_date": target_date.strftime("%B %Y") if is_monthly else target_date.strftime("%d/%m/%Y"), 
             "search_key": today_month_search if is_monthly else today_for_search,
             "has_data": has_data, "pages": pages_data}, True
@@ -162,62 +142,51 @@ def fetch_report_data(target_date, is_monthly=False):
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False):
     try: target_date = parser.parse(requested_date_str)
     except: return
-    
     report_data, is_success = fetch_report_data(target_date, is_monthly)
     if not is_success or not report_data['has_data']:
         send_simple_message(target_chat_id, "📭 មិនមានទិន្នន័យសម្រាប់ Export PDF ទេ។")
         return
-
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     hlcc_blue, hlcc_grey, light_bg = (52, 157, 216), (80, 80, 80), (245, 250, 255)
-
     logo_path = 'logo.png'
     if os.path.exists(logo_path):
         pdf.image(logo_path, x=10, y=8, w=35)
         pdf.set_x(50)
     else: pdf.set_x(10)
-
     pdf.set_font("Helvetica", "B", 20); pdf.set_text_color(*hlcc_blue)
     pdf.cell(0, 10, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="L")
-    
     pdf.set_x(pdf.get_x() + 40 if os.path.exists(logo_path) else 10)
     pdf.set_font("Helvetica", "B", 12); pdf.set_text_color(*hlcc_grey)
     title = f"Monthly Sales Dashboard - {report_data['display_date']}" if is_monthly else f"Daily Sales Dashboard - {report_data['display_date']}"
     pdf.cell(0, 7, title, ln=True, align="L")
     pdf.ln(10)
-
     for page in report_data['pages']:
         pdf.set_font("Helvetica", "B", 14); pdf.set_fill_color(*hlcc_blue); pdf.set_text_color(255, 255, 255)
         pdf.cell(0, 10, f"  PAGE: {page['page_name'].upper()}", ln=True, fill=True)
         pdf.ln(4)
-
         pdf.set_font("Helvetica", "B", 10); pdf.set_text_color(*hlcc_grey); pdf.set_fill_color(240, 240, 240)
         col_w = 47.5
         pdf.cell(col_w, 8, "NUM CHAT", 1, 0, 'C', fill=True)
         pdf.cell(col_w, 8, "BOOKING", 1, 0, 'C', fill=True)
         pdf.cell(col_w, 8, "VISIT", 1, 0, 'C', fill=True)
         pdf.cell(col_w, 8, "CLOSE DEAL", 1, 1, 'C', fill=True)
-        
         pdf.set_font("Helvetica", "", 11)
         pdf.cell(col_w, 8, str(page['num_chat']), 1, 0, 'C')
         pdf.cell(col_w, 8, str(page['online_booking']), 1, 0, 'C')
         pdf.cell(col_w, 8, str(page['visit']), 1, 0, 'C')
         pdf.cell(col_w, 8, str(page['close_deal']), 1, 1, 'C')
         pdf.ln(3)
-
         pdf.set_font("Helvetica", "B", 10); pdf.set_fill_color(240, 240, 240)
         pdf.cell(63.3, 8, "PACKAGE COUNT", 1, 0, 'C', fill=True)
         label_revenue = "MONTHLY REVENUE" if is_monthly else "DAILY REVENUE"
         pdf.cell(63.3, 8, label_revenue, 1, 0, 'C', fill=True)
         pdf.cell(63.3, 8, "TARGET REVENUE", 1, 1, 'C', fill=True)
-
         pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*hlcc_blue)
         pdf.cell(63.3, 8, str(page['package_count']), 1, 0, 'C')
         pdf.cell(63.3, 8, f"${page['total_sale_amount']:.2f}", 1, 0, 'C')
         pdf.cell(63.3, 8, f"${page['target_amount']:.2f}", 1, 1, 'C')
         pdf.ln(5)
-
         pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*hlcc_grey)
         pdf.cell(0, 8, "CONVERSION RATES (%)", 0, 1, 'L')
         pdf.set_font("Helvetica", "B", 9); rate_w = 38
@@ -227,7 +196,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False):
         pdf.cell(rate_w, 7, "Deal %", 1, 0, 'C', fill=True)
         pdf.cell(rate_w, 7, "Package %", 1, 0, 'C', fill=True)
         pdf.cell(rate_w, 7, "Achieved %", 1, 1, 'C', fill=True)
-
         pdf.set_font("Helvetica", "", 10); pdf.set_text_color(0, 0, 0)
         pdf.cell(rate_w, 7, f"{page['rate_booking']}%", 1, 0, 'C')
         pdf.cell(rate_w, 7, f"{page['rate_visit']}%", 1, 0, 'C')
@@ -235,13 +203,10 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False):
         pdf.cell(rate_w, 7, f"{page['rate_package']}%", 1, 0, 'C')
         pdf.cell(rate_w, 7, f"{page['rate_sale']}%", 1, 1, 'C')
         pdf.ln(12) 
-
     pdf.set_y(-20); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(150)
     pdf.cell(0, 10, f"HLCC System Report - Generated: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
-
     prefix = "HLCC_Monthly_Report" if is_monthly else "HLCC_Daily_Report"
     file_name = f"{prefix}_{report_data['search_key']}.pdf"
-    
     temp_dir = tempfile.gettempdir(); file_path = os.path.join(temp_dir, file_name)
     pdf.output(file_path)
     send_document(target_chat_id, file_path, f"📊 <b>HLCC {'Monthly' if is_monthly else 'Daily'} Dashboard</b>\n📅 Date: {report_data['display_date']}")
@@ -254,15 +219,15 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
     global report_cache
     try: target_date = parser.parse(requested_date_str)
     except: return
-    
     report_data, is_success = fetch_report_data(target_date, is_monthly)
     today_for_display, search_key = report_data['display_date'], report_data['search_key']
-    
     cache_key = f"M_REPORT_v{CACHE_VERSION}_{search_key}" if is_monthly else f"D_REPORT_v{CACHE_VERSION}_{search_key}"
     
+    # កែសម្រួល៖ រៀបចំប៊ូតុងឲ្យនៅម្នាក់មួយជួរវិញ ដើម្បីការពារដាច់អក្សរ
     keyboard = {"inline_keyboard": [
         [{"text": f"📥 Download {'Monthly' if is_monthly else 'Daily'} PDF", "callback_data": f"{'mpdf_' if is_monthly else 'pdf_'}{search_key}"}],
-        [{"text": "📅 ឆែកតាមថ្ងៃ (Daily)", "callback_data": "ask_specific_date"}, {"text": "📊 ឆែកតាមខែ (Monthly)", "callback_data": "ask_monthly_report"}]
+        [{"text": "📅 ឆែកតាមថ្ងៃ (Daily Report)", "callback_data": "ask_specific_date"}],
+        [{"text": "📊 ឆែកតាមខែ (Monthly Report)", "callback_data": "ask_monthly_report"}]
     ]}
 
     if cache_key in report_cache:
@@ -272,15 +237,12 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
             return
         send_simple_message(target_chat_id, cached_msg, keyboard)
         return
-
     if not is_success or not report_data['has_data']:
         report_cache[cache_key] = "EMPTY"
         send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ {today_for_display} ទេ។")
         return
-
     label = "Monthly Report Summary" if is_monthly else "Daily Sale Report"
     message = f"Dear Management\n💻 HLCC {label}\n🗓️ Period: <b>{today_for_display}</b>\n\n"
-    
     for page in report_data['pages']:
         message += f"🌐 Page: <b>{page['page_name']}</b>\n"
         message += f"» Total Chat: <b>{page['num_chat']}</b>\n"
@@ -294,7 +256,6 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
         message += f"» Booking: <b>{page['rate_booking']}%</b> | Visit: <b>{page['rate_visit']}%</b>\n"
         message += f"» Deal: <b>{page['rate_close_deal']}%</b> | Pkg: <b>{page['rate_package']}%</b>\n"
         message += "========================\n\n"
-    
     message += "Thank you 😊"
     report_cache[cache_key] = message
     send_simple_message(target_chat_id, message, keyboard)
@@ -310,7 +271,6 @@ def webhook():
         cb = update["callback_query"]
         chat_id, message_id, data = cb["message"]["chat"]["id"], cb["message"]["message_id"], cb["data"]
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
-        
         if data == 'ask_monthly_report':
             year = datetime.now(tz).year
             months = ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"]
@@ -353,7 +313,6 @@ def webhook():
             sel_date = data.replace('pdf_', '')
             send_simple_message(chat_id, f"📥 កំពុងបង្កើតឯកសារ PDF សម្រាប់ថ្ងៃ <b>{sel_date}</b> ...")
             threading.Thread(target=generate_and_send_pdf, args=(sel_date, chat_id, False)).start()
-            
     return jsonify({"status": "ok"})
 
 @app.route('/clear_cache', methods=['GET', 'POST'])
