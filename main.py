@@ -14,7 +14,6 @@ from fpdf import FPDF
 import tempfile
 import random
 import matplotlib
-# កំណត់ matplotlib ឱ្យរត់ក្នុងលក្ខណៈ Headless (គ្មាន screen) សម្រាប់ Server
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -156,7 +155,7 @@ def fetch_report_data(target_date, is_monthly=False):
             "has_data": has_data, "pages": pages_data}, True
 
 # ==========================================
-# Generate PDF (Dashboard HLCC with Charts)
+# Generate PDF (Dashboard HLCC)
 # ==========================================
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -169,12 +168,9 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         
         pdf = FPDF(orientation='P', unit='mm', format='A4')
         pdf.add_page()
-        hlcc_blue = (52, 157, 216)
-        hlcc_grey = (80, 80, 80)
-        petal_pink = (255, 220, 230)
+        hlcc_blue, hlcc_grey, petal_pink = (52, 157, 216), (80, 80, 80), (255, 220, 230)
         logo_path = 'logo.png'
 
-        # ១. Background ត្របកផ្កា
         with pdf.local_context(fill_opacity=0.06):
             pdf.set_fill_color(*petal_pink)
             random.seed(42)
@@ -182,7 +178,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
                 x, y, w = random.randint(10, 190), random.randint(10, 280), random.randint(10, 25)
                 pdf.ellipse(x, y, w, w * 0.6, style="F")
 
-        # ២. Logo Background
         if os.path.exists(logo_path):
             with pdf.local_context(fill_opacity=0.15):
                 pdf.image(logo_path, x=30, y=70, w=150)
@@ -190,7 +185,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.set_x(50)
         else: pdf.set_x(10)
 
-        # ៣. Header
         pdf.set_font("Helvetica", "B", 20); pdf.set_text_color(*hlcc_blue)
         pdf.cell(0, 10, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="L")
         pdf.set_x(pdf.get_x() + 40 if os.path.exists(logo_path) else 10)
@@ -199,52 +193,39 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.cell(0, 7, title, ln=True, align="L")
         pdf.ln(5)
 
-        # --- ៤. បង្កើតក្រាប (Performance Graph) ---
-        page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
+        # ក្រាប Achievement
         achieved_pct = [float(p['rate_sale']) for p in report_data['pages']]
-        
+        page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
         plt.figure(figsize=(6, 3))
         plt.bar(page_names, achieved_pct, color='#349dd8')
-        plt.ylabel('Achieved (%)', fontsize=10)
-        plt.title('Sales Achievement by Page', fontsize=12)
+        plt.ylabel('Achieved (%)', fontsize=10); plt.title('Sales Achievement by Page', fontsize=12)
         plt.ylim(0, max(max(achieved_pct) + 10, 100))
-        
-        # រក្សាទុកក្រាបជាបណ្តោះអាសន្ន
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
-            plt.savefig(tmpfile.name, format='png', bbox_inches='tight', dpi=100)
-            chart_path = tmpfile.name
+            plt.savefig(tmpfile.name, format='png', bbox_inches='tight', dpi=100); chart_path = tmpfile.name
         plt.close()
-
-        # បញ្ចូលក្រាបក្នុង PDF
-        pdf.image(chart_path, x=10, y=35, w=100)
-        pdf.ln(50) # ចុះក្រោមដើម្បីកុំឱ្យបាំងក្រាប
+        pdf.image(chart_path, x=10, y=35, w=100); pdf.ln(50)
         if os.path.exists(chart_path): os.remove(chart_path)
 
-        # ៥. តារាងទិន្នន័យ
         for page in report_data['pages']:
             pdf.set_font("Helvetica", "B", 14); pdf.set_fill_color(*hlcc_blue); pdf.set_text_color(255, 255, 255)
             pdf.cell(0, 10, f"  PAGE: {page['page_name'].upper()}", ln=True, fill=True)
             pdf.ln(2)
-            
             pdf.set_font("Helvetica", "B", 10); pdf.set_text_color(*hlcc_grey); pdf.set_fill_color(240, 240, 240)
             col_w = 47.5
             pdf.cell(col_w, 8, "NUM CHAT", 1, 0, 'C', fill=True)
             pdf.cell(col_w, 8, "BOOKING", 1, 0, 'C', fill=True)
             pdf.cell(col_w, 8, "VISIT", 1, 0, 'C', fill=True)
             pdf.cell(col_w, 8, "CLOSE DEAL", 1, 1, 'C', fill=True)
-            
             pdf.set_font("Helvetica", "", 11); pdf.set_text_color(0, 0, 0)
             pdf.cell(col_w, 8, str(page['num_chat']), 1, 0, 'C')
             pdf.cell(col_w, 8, str(page['online_booking']), 1, 0, 'C')
             pdf.cell(col_w, 8, str(page['visit']), 1, 0, 'C')
             pdf.cell(col_w, 8, str(page['close_deal']), 1, 1, 'C')
             pdf.ln(2)
-            
             pdf.set_font("Helvetica", "B", 10); pdf.set_fill_color(240, 240, 240); pdf.set_text_color(*hlcc_grey)
             pdf.cell(63.3, 8, "PACKAGE COUNT", 1, 0, 'C', fill=True)
             pdf.cell(63.3, 8, "MONTHLY REVENUE" if is_monthly else "DAILY REVENUE", 1, 0, 'C', fill=True)
             pdf.cell(63.3, 8, "TARGET REVENUE", 1, 1, 'C', fill=True)
-            
             pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*hlcc_blue)
             pdf.cell(63.3, 8, str(page['package_count']), 1, 0, 'C')
             rev = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
@@ -265,7 +246,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
 
 # ==========================================
-# Generate Text Report
+# Generate Text Report (Using Monospace for Data)
 # ==========================================
 def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -299,21 +280,26 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
         for page in report_data['pages']:
             p_name = page['page_name'].replace(" Page", "")
             message += f"📅 Period: {today_for_display} | 🌐 Page: {p_name}\n\n"
+            
             message += "📈 <b>Activity Summary</b>\n"
-            message += f"• 💬 Total chats: {page['num_chat']}\n"
-            message += f"• 📅 Bookings: {page['online_booking']}\n"
-            message += f"• 📍 Visits: {page['visit']}\n"
-            message += f"• ✅ Closed deals: {page['close_deal']}\n"
+            # ប្រើ Tag <code> សម្រាប់ទិន្នន័យតួលេខ (Monospace)
+            message += f"• 💬 Total chats: <code>{page['num_chat']}</code>\n"
+            message += f"• 📅 Bookings: <code>{page['online_booking']}</code>\n"
+            message += f"• 📍 Visits: <code>{page['visit']}</code>\n"
+            message += f"• ✅ Closed deals: <code>{page['close_deal']}</code>\n"
+            
             sale_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
             sale_label = "Monthly" if is_monthly else "Today’s"
-            message += f"• 💰 {sale_label} sales: ${sale_val:.2f}\n\n"
+            message += f"• 💰 {sale_label} sales: <code>${sale_val:.2f}</code>\n\n"
+            
             message += "🔄 <b>Conversion Rates</b>\n"
-            message += f"📅 Booking: {page['rate_booking']}% | 📍 Visit: {page['rate_visit']}%\n"
-            message += f"✅ Deal: {page['rate_close_deal']}% | 📦 Package: {page['rate_package']}%\n\n"
+            message += f"📅 Booking: <code>{page['rate_booking']}%</code> | 📍 Visit: <code>{page['rate_visit']}%</code>\n"
+            message += f"✅ Deal: <code>{page['rate_close_deal']}%</code> | 📦 Package: <code>{page['rate_package']}%</code>\n\n"
+            
             message += "🎯 <b>Monthly Target</b>\n"
-            message += f"🏆 Goal: ${page['target_amount']:.2f}\n"
-            message += f"💵 Actual: ${page['total_sale_monthly']:.2f}\n"
-            message += f"📊 Achieved: {page['rate_sale']}%\n"
+            message += f"🏆 Goal: <code>${page['target_amount']:.2f}</code>\n"
+            message += f"💵 Actual: <code>${page['total_sale_monthly']:.2f}</code>\n"
+            message += f"📊 Achieved: <b><code>{page['rate_sale']}%</code></b>\n"
             message += "====================\n\n"
         
         message += "Thank you 😊"
