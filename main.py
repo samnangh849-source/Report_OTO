@@ -306,7 +306,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             fill_w = (min(achieved, 100) / 100) * 45
             
             pdf.set_fill_color(*ACCENT_BLUE)
-            # FIXED SYNTAX ERROR HERE
             if fill_w > 0: 
                 pdf.rect(bar_x, bar_y, fill_w, 2.5, 'F')
                 
@@ -347,32 +346,37 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             os.remove(tmp_c.name)
         plt.close()
         
-        # 5. FOOTER AREA (QR next to Credit)
-        footer_base_y = 660
+        # 5. FOOTER AREA (QR and Credit Centered at the bottom)
+        footer_base_y = 635 
         
         qr = qrcode.QRCode(version=1, border=1, box_size=10)
         qr.add_data("https://t.me/OUDOM333")
         qr.make(fit=True)
         img_qr = qr.make_image(fill_color="#1F2937", back_color="white").convert('RGB')
         
+        qr_w = 18
+        qr_x = (pdf_w - qr_w) / 2 
+        qr_y = footer_base_y
+        
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as t_qr:
             img_qr.save(t_qr.name)
-            qr_w = 16
-            pdf.image(t_qr.name, x=175, y=footer_base_y - 6, w=qr_w)
+            pdf.set_fill_color(255, 255, 255)
+            pdf.rect(qr_x - 1, qr_y - 1, qr_w + 2, qr_w + 2, 'F') 
+            pdf.image(t_qr.name, x=qr_x, y=qr_y, w=qr_w)
             os.remove(t_qr.name)
-        
-        pdf.set_y(footer_base_y)
-        pdf.set_x(20)
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(156, 163, 175)
-        pdf.cell(150, 4, f"Powered by OTO Messages  |  Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", 0, 0, 'L')
-        
-        pdf.set_xy(165, footer_base_y + 10)
+            
+        pdf.set_y(qr_y + qr_w + 2)
         pdf.set_font("Helvetica", "B", 7)
         pdf.set_text_color(*PRIMARY_BLUE)
-        pdf.cell(35, 4, "HELP & SUPPORT: @OUDOM333", 0, 0, 'R')
+        pdf.cell(0, 4, "SCAN TO CONTACT DEVELOPER: @OUDOM333", ln=True, align="C")
         
-        f_n = f"HLCC_Premium_{report_data['search_key']}.pdf"
+        pdf.set_y(pdf.get_y() + 1)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(156, 163, 175)
+        pdf.cell(0, 4, f"Powered by OTO Messages  |  Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", ln=True, align="C")
+        
+        # កែឈ្មោះ File ទៅជា "HLCC Page Report" តាមការស្នើសុំ
+        f_n = f"HLCC Page Report - {report_data['search_key']}.pdf"
         f_p = os.path.join(tempfile.gettempdir(), f_n)
         pdf.output(f_p)
         send_document(target_chat_id, f_p, f"💎 <b>HLCC Executive Dashboard</b>\n📅 {report_data['display_date']}", thumb_path=logo_path)
