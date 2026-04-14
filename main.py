@@ -110,16 +110,18 @@ def fetch_report_data(target_date, is_monthly=False):
                 p_date = parser.parse(str_date)
                 if p_date.year == target_y and p_date.month == target_m:
                     is_match_month = True
-                    if not is_monthly and p_date.day == target_d: is_match_day = True
+                    if p_date.day == target_d: is_match_day = True
             except:
                 if str_date.startswith(today_month_search): is_match_month = True
-                if not is_monthly and str_date == today_for_search: is_match_day = True
+                if str_date == today_for_search: is_match_day = True
+
+            row_match = is_match_month if is_monthly else is_match_day
 
             if is_match_month:
                 try: total_sale_monthly += float(row[7] or 0)
                 except: pass
             
-            if is_match_day:
+            if row_match:
                 num_chat += 1
                 try: total_sale_today += float(row[7] or 0)
                 except: pass
@@ -174,7 +176,8 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
                 pdf.ellipse(x, y, w, w * 0.6, style="F")
 
         if os.path.exists(logo_path):
-            with pdf.local_context(fill_opacity=0.08):
+            # កែសម្រួល៖ ដំឡើងភាពព្រឹលរបស់ Logo Background ទៅជា 15% (0.15)
+            with pdf.local_context(fill_opacity=0.15):
                 pdf.image(logo_path, x=30, y=70, w=150)
             pdf.image(logo_path, x=10, y=8, w=35)
             pdf.set_x(50)
@@ -240,7 +243,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         send_document(target_chat_id, file_path, f"📊 <b>HLCC {'Monthly' if is_monthly else 'Daily'} Dashboard</b>\n📅 Date: {report_data['display_date']}")
         if os.path.exists(file_path): os.remove(file_path)
     finally:
-        # លុបសារ Loading បន្ទាប់ពីចប់ (ទោះជោគជ័យឬបរាជ័យ)
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
 
 # ==========================================
@@ -256,8 +258,8 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
         
         keyboard = {"inline_keyboard": [
             [{"text": f"📥 Download {'Monthly' if is_monthly else 'Daily'} PDF", "callback_data": f"{'mpdf_' if is_monthly else 'pdf_'}{search_key}"}],
-            [{"text": "📅 ឆែកតាមថ្ងៃ (Daily Report)", "callback_data": "ask_specific_date"}],
-            [{"text": "📊 ឆែកតាមខែ (Monthly Report)", "callback_data": "ask_monthly_report"}]
+            [{"text": "📅 ប្រចាំថ្ងៃ (Daily Report)", "callback_data": "ask_specific_date"}],
+            [{"text": "📊 ប្រចាំខែ (Monthly Report)", "callback_data": "ask_monthly_report"}]
         ]}
 
         if cache_key in report_cache:
@@ -283,12 +285,15 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
             message += f"• 📅 Bookings: {page['online_booking']}\n"
             message += f"• 📍 Visits: {page['visit']}\n"
             message += f"• ✅ Closed deals: {page['close_deal']}\n"
-            sale_val = page['total_sale_today'] if not is_monthly else page['total_sale_monthly']
-            sale_label = "Today’s" if not is_monthly else "Monthly"
+            
+            sale_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
+            sale_label = "Monthly" if is_monthly else "Today’s"
             message += f"• 💰 {sale_label} sales: ${sale_val:.2f}\n\n"
+            
             message += "🔄 <b>Conversion Rates</b>\n"
             message += f"📅 Booking: {page['rate_booking']}% | 📍 Visit: {page['rate_visit']}%\n"
             message += f"✅ Deal: {page['rate_close_deal']}% | 📦 Package: {page['rate_package']}%\n\n"
+            
             message += "🎯 <b>Monthly Target</b>\n"
             message += f"🏆 Goal: ${page['target_amount']:.2f}\n"
             message += f"💵 Actual: ${page['total_sale_monthly']:.2f}\n"
@@ -299,7 +304,6 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
         report_cache[cache_key] = message
         send_simple_message(target_chat_id, message, keyboard)
     finally:
-        # លុបសារ Loading បន្ទាប់ពីចប់
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
 
 # ==========================================
