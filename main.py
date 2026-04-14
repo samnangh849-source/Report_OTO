@@ -13,6 +13,10 @@ import pytz
 from fpdf import FPDF
 import tempfile
 import random
+import matplotlib
+# កំណត់ matplotlib ឱ្យរត់ក្នុងលក្ខណៈ Headless (គ្មាន screen) សម្រាប់ Server
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 
@@ -152,7 +156,7 @@ def fetch_report_data(target_date, is_monthly=False):
             "has_data": has_data, "pages": pages_data}, True
 
 # ==========================================
-# Generate PDF (Dashboard HLCC)
+# Generate PDF (Dashboard HLCC with Charts)
 # ==========================================
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -165,9 +169,12 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         
         pdf = FPDF(orientation='P', unit='mm', format='A4')
         pdf.add_page()
-        hlcc_blue, hlcc_grey, petal_pink = (52, 157, 216), (80, 80, 80), (255, 220, 230)
+        hlcc_blue = (52, 157, 216)
+        hlcc_grey = (80, 80, 80)
+        petal_pink = (255, 220, 230)
         logo_path = 'logo.png'
 
+        # ១. Background ត្របកផ្កា
         with pdf.local_context(fill_opacity=0.06):
             pdf.set_fill_color(*petal_pink)
             random.seed(42)
@@ -175,64 +182,76 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
                 x, y, w = random.randint(10, 190), random.randint(10, 280), random.randint(10, 25)
                 pdf.ellipse(x, y, w, w * 0.6, style="F")
 
+        # ២. Logo Background
         if os.path.exists(logo_path):
-            # កែសម្រួល៖ ដំឡើងភាពព្រឹលរបស់ Logo Background ទៅជា 15% (0.15)
             with pdf.local_context(fill_opacity=0.15):
                 pdf.image(logo_path, x=30, y=70, w=150)
             pdf.image(logo_path, x=10, y=8, w=35)
             pdf.set_x(50)
         else: pdf.set_x(10)
 
+        # ៣. Header
         pdf.set_font("Helvetica", "B", 20); pdf.set_text_color(*hlcc_blue)
         pdf.cell(0, 10, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="L")
         pdf.set_x(pdf.get_x() + 40 if os.path.exists(logo_path) else 10)
         pdf.set_font("Helvetica", "B", 12); pdf.set_text_color(*hlcc_grey)
-        title = f"Monthly Sales Dashboard - {report_data['display_date']}" if is_monthly else f"Daily Sales Dashboard - {report_data['display_date']}"
+        title = f"{'Monthly' if is_monthly else 'Daily'} Sales Dashboard - {report_data['display_date']}"
         pdf.cell(0, 7, title, ln=True, align="L")
-        pdf.ln(10)
+        pdf.ln(5)
 
+        # --- ៤. បង្កើតក្រាប (Performance Graph) ---
+        page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
+        achieved_pct = [float(p['rate_sale']) for p in report_data['pages']]
+        
+        plt.figure(figsize=(6, 3))
+        plt.bar(page_names, achieved_pct, color='#349dd8')
+        plt.ylabel('Achieved (%)', fontsize=10)
+        plt.title('Sales Achievement by Page', fontsize=12)
+        plt.ylim(0, max(max(achieved_pct) + 10, 100))
+        
+        # រក្សាទុកក្រាបជាបណ្តោះអាសន្ន
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
+            plt.savefig(tmpfile.name, format='png', bbox_inches='tight', dpi=100)
+            chart_path = tmpfile.name
+        plt.close()
+
+        # បញ្ចូលក្រាបក្នុង PDF
+        pdf.image(chart_path, x=10, y=35, w=100)
+        pdf.ln(50) # ចុះក្រោមដើម្បីកុំឱ្យបាំងក្រាប
+        if os.path.exists(chart_path): os.remove(chart_path)
+
+        # ៥. តារាងទិន្នន័យ
         for page in report_data['pages']:
             pdf.set_font("Helvetica", "B", 14); pdf.set_fill_color(*hlcc_blue); pdf.set_text_color(255, 255, 255)
             pdf.cell(0, 10, f"  PAGE: {page['page_name'].upper()}", ln=True, fill=True)
-            pdf.ln(4)
+            pdf.ln(2)
+            
             pdf.set_font("Helvetica", "B", 10); pdf.set_text_color(*hlcc_grey); pdf.set_fill_color(240, 240, 240)
             col_w = 47.5
             pdf.cell(col_w, 8, "NUM CHAT", 1, 0, 'C', fill=True)
             pdf.cell(col_w, 8, "BOOKING", 1, 0, 'C', fill=True)
             pdf.cell(col_w, 8, "VISIT", 1, 0, 'C', fill=True)
             pdf.cell(col_w, 8, "CLOSE DEAL", 1, 1, 'C', fill=True)
-            pdf.set_font("Helvetica", "", 11)
+            
+            pdf.set_font("Helvetica", "", 11); pdf.set_text_color(0, 0, 0)
             pdf.cell(col_w, 8, str(page['num_chat']), 1, 0, 'C')
             pdf.cell(col_w, 8, str(page['online_booking']), 1, 0, 'C')
             pdf.cell(col_w, 8, str(page['visit']), 1, 0, 'C')
             pdf.cell(col_w, 8, str(page['close_deal']), 1, 1, 'C')
-            pdf.ln(3)
-            pdf.set_font("Helvetica", "B", 10); pdf.set_fill_color(240, 240, 240)
+            pdf.ln(2)
+            
+            pdf.set_font("Helvetica", "B", 10); pdf.set_fill_color(240, 240, 240); pdf.set_text_color(*hlcc_grey)
             pdf.cell(63.3, 8, "PACKAGE COUNT", 1, 0, 'C', fill=True)
             pdf.cell(63.3, 8, "MONTHLY REVENUE" if is_monthly else "DAILY REVENUE", 1, 0, 'C', fill=True)
             pdf.cell(63.3, 8, "TARGET REVENUE", 1, 1, 'C', fill=True)
+            
             pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*hlcc_blue)
             pdf.cell(63.3, 8, str(page['package_count']), 1, 0, 'C')
             rev = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
             pdf.cell(63.3, 8, f"${rev:.2f}", 1, 0, 'C')
             pdf.cell(63.3, 8, f"${page['target_amount']:.2f}", 1, 1, 'C')
-            pdf.ln(5)
-            pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*hlcc_grey)
-            pdf.cell(0, 8, "CONVERSION RATES (%)", 0, 1, 'L')
-            pdf.set_font("Helvetica", "B", 9); rate_w = 38
-            pdf.set_fill_color(245, 250, 255)
-            pdf.cell(rate_w, 7, "Booking %", 1, 0, 'C', fill=True)
-            pdf.cell(rate_w, 7, "Visit %", 1, 0, 'C', fill=True)
-            pdf.cell(rate_w, 7, "Deal %", 1, 0, 'C', fill=True)
-            pdf.cell(rate_w, 7, "Package %", 1, 0, 'C', fill=True)
-            pdf.cell(rate_w, 7, "Achieved %", 1, 1, 'C', fill=True)
-            pdf.set_font("Helvetica", "", 10); pdf.set_text_color(0, 0, 0)
-            pdf.cell(rate_w, 7, f"{page['rate_booking']}%", 1, 0, 'C')
-            pdf.cell(rate_w, 7, f"{page['rate_visit']}%", 1, 0, 'C')
-            pdf.cell(rate_w, 7, f"{page['rate_close_deal']}%", 1, 0, 'C')
-            pdf.cell(rate_w, 7, f"{page['rate_package']}%", 1, 0, 'C')
-            pdf.cell(rate_w, 7, f"{page['rate_sale']}%", 1, 1, 'C')
-            pdf.ln(12) 
+            pdf.ln(4)
+
         pdf.set_y(-20); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(150)
         pdf.cell(0, 10, f"HLCC System Report - Generated: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
         
@@ -240,13 +259,13 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         file_name = f"{prefix}_{report_data['search_key']}.pdf"
         temp_dir = tempfile.gettempdir(); file_path = os.path.join(temp_dir, file_name)
         pdf.output(file_path)
-        send_document(target_chat_id, file_path, f"📊 <b>HLCC {'Monthly' if is_monthly else 'Daily'} Dashboard</b>\n📅 Date: {report_data['display_date']}")
+        send_document(target_chat_id, file_path, f"📊 <b>HLCC Dashboard</b>\n📅 Date: {report_data['display_date']}")
         if os.path.exists(file_path): os.remove(file_path)
     finally:
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
 
 # ==========================================
-# Generate Text Report (Updated Format)
+# Generate Text Report
 # ==========================================
 def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -285,15 +304,12 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
             message += f"• 📅 Bookings: {page['online_booking']}\n"
             message += f"• 📍 Visits: {page['visit']}\n"
             message += f"• ✅ Closed deals: {page['close_deal']}\n"
-            
             sale_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
             sale_label = "Monthly" if is_monthly else "Today’s"
             message += f"• 💰 {sale_label} sales: ${sale_val:.2f}\n\n"
-            
             message += "🔄 <b>Conversion Rates</b>\n"
             message += f"📅 Booking: {page['rate_booking']}% | 📍 Visit: {page['rate_visit']}%\n"
             message += f"✅ Deal: {page['rate_close_deal']}% | 📦 Package: {page['rate_package']}%\n\n"
-            
             message += "🎯 <b>Monthly Target</b>\n"
             message += f"🏆 Goal: ${page['target_amount']:.2f}\n"
             message += f"💵 Actual: ${page['total_sale_monthly']:.2f}\n"
@@ -325,7 +341,7 @@ def webhook():
             for i in range(12):
                 curr.append({"text": months[i], "callback_data": f"mreport_{year}-{i+1:02d}"})
                 if len(curr) == 3 or i == 11: rows.append(curr); curr = []
-            send_simple_message(chat_id, f"📊 សូមជ្រើសរើស <b>ខែ</b> ដើម្បីមើលរបាយការណ៍សរុបប្រចាំខែ ៖", {"inline_keyboard": rows})
+            send_simple_message(chat_id, f"📊 សូមជ្រើសរើស <b>ខែ</b> ៖", {"inline_keyboard": rows})
             
         elif data.startswith('mreport_'):
             sel_month = data.replace('mreport_', '')
