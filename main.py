@@ -14,9 +14,10 @@ from fpdf import FPDF
 import tempfile
 import random
 import matplotlib
-matplotlib.use('Agg') # សម្រាប់ដំណើរការលើ Server ដោយគ្មាន screen
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import qrcode
+from PIL import Image
 
 app = Flask(__name__)
 
@@ -156,7 +157,7 @@ def fetch_report_data(target_date, is_monthly=False):
             "has_data": has_data, "pages": pages_data}, True
 
 # ==========================================
-# Generate PDF (Professional Layout)
+# Generate PDF (Professional Layout with Fixed QR)
 # ==========================================
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -170,7 +171,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf = FPDF(orientation='P', unit='mm', format='A4')
         pdf.add_page()
         
-        # Colors & Resources
         hlcc_blue = (52, 157, 216)
         hlcc_grey = (60, 60, 60)
         petal_pink = (255, 220, 230)
@@ -198,11 +198,8 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
 
         pdf.set_font("Helvetica", "B", 22); pdf.set_text_color(*hlcc_blue)
         pdf.cell(0, 10, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="C")
-        
         pdf.set_font("Helvetica", "B", 13); pdf.set_text_color(*hlcc_grey)
-        report_title = f"{'MONTHLY' if is_monthly else 'DAILY'} SALES PERFORMANCE DASHBOARD"
-        pdf.cell(0, 8, report_title, ln=True, align="C")
-        
+        pdf.cell(0, 8, f"{'MONTHLY' if is_monthly else 'DAILY'} PERFORMANCE DASHBOARD", ln=True, align="C")
         pdf.set_font("Helvetica", "I", 11); pdf.set_text_color(100)
         pdf.cell(0, 6, f"Period: {report_data['display_date']}", ln=True, align="C")
         
@@ -258,13 +255,12 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.line(20, pdf.get_y(), 190, pdf.get_y())
         pdf.ln(5)
         
+        # គូរក្រាប
         achieved_pct = [float(p['rate_sale']) for p in report_data['pages']]
         page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
-        
         plt.figure(figsize=(7, 3.5))
         bars = plt.bar(page_names, achieved_pct, color='#349dd8', width=0.5)
-        plt.ylabel('Achieved (%)', fontsize=10, fontweight='bold')
-        plt.title('SALES ACHIEVEMENT VS TARGET (%)', fontsize=12, fontweight='bold', pad=15)
+        plt.ylabel('Achieved (%)', fontweight='bold'); plt.title('SALES ACHIEVEMENT (%)', fontweight='bold', pad=15)
         plt.ylim(0, max(max(achieved_pct) + 15, 110))
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         for bar in bars:
@@ -273,18 +269,21 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
             plt.savefig(tmpfile.name, format='png', bbox_inches='tight', dpi=120); chart_path = tmpfile.name
         plt.close()
-        pdf.image(chart_path, x=35, y=pdf.get_y() + 5, w=140)
+        pdf.image(chart_path, x=35, y=pdf.get_y() + 5, w=130)
         if os.path.exists(chart_path): os.remove(chart_path)
 
-        # --- ៦. បន្ថែម QR Code សម្រាប់ Help & Credits ---
-        # បង្កើត QR Code Link ទៅកាន់ Telegram Developer
-        qr = qrcode.QRCode(box_size=10, border=1)
+        # --- ៦. FIXED QR Code (RGB Conversion) ---
+        qr = qrcode.QRCode(version=1, border=2, box_size=10)
         qr.add_data("https://t.me/OUDOM333")
         qr.make(fit=True)
-        img_qr = qr.make_image(fill_color="black", back_color="white")
+        img_qr = qr.make_image(fill_color="black", back_color="white").convert('RGB')
+        
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_qr:
             img_qr.save(tmp_qr.name); qr_path = tmp_qr.name
         
+        # គូរប្រអប់សពីក្រោយ QR ដើម្បីឱ្យ Scan កាន់តែងាយ
+        pdf.set_fill_color(255, 255, 255)
+        pdf.rect(174, 261, 22, 22, 'F')
         pdf.image(qr_path, x=175, y=262, w=20)
         if os.path.exists(qr_path): os.remove(qr_path)
         
@@ -293,12 +292,11 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.set_x(140); pdf.set_font("Helvetica", "", 7); pdf.set_text_color(100)
         pdf.cell(33, 4, "@OUDOM333", ln=True, align="R")
 
-        # Footer & Credits
+        # Footer
         pdf.set_y(-15); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(150)
         pdf.cell(0, 10, f"System by OTO Messages | Developed by @OUDOM333 | Generated: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
         
-        prefix = "HLCC_Monthly_Report" if is_monthly else "HLCC_Daily_Report"
-        file_name = f"{prefix}_{report_data['search_key']}.pdf"
+        file_name = f"{'HLCC_Monthly' if is_monthly else 'HLCC_Daily'}_{report_data['search_key']}.pdf"
         temp_dir = tempfile.gettempdir(); file_path = os.path.join(temp_dir, file_name)
         pdf.output(file_path)
         send_document(target_chat_id, file_path, f"📊 <b>HLCC Dashboard</b>\n📅 Date: {report_data['display_date']}")
@@ -307,7 +305,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
 
 # ==========================================
-# Generate Text Report (Updated Buttons)
+# Generate Text Report (Vertical Buttons)
 # ==========================================
 def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -317,7 +315,6 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
         today_for_display, search_key = report_data['display_date'], report_data['search_key']
         cache_key = f"M_REPORT_v{CACHE_VERSION}_{search_key}" if is_monthly else f"D_REPORT_v{CACHE_VERSION}_{search_key}"
         
-        # កែសម្រួល៖ ប្តូរឈ្មោះប៊ូតុង PDF និងបន្ថែមប៊ូតុង Help
         keyboard = {"inline_keyboard": [
             [{"text": "📥 PDF", "callback_data": f"{'mpdf_' if is_monthly else 'pdf_'}{search_key}"}],
             [{"text": "📅 ប្រចាំថ្ងៃ (Daily Report)", "callback_data": "ask_specific_date"}],
@@ -392,7 +389,7 @@ def webhook():
             threading.Thread(target=generate_and_send_report, args=(sel_month, chat_id, True, loading_id)).start()
         elif data.startswith('mpdf_'):
             sel_month = data.replace('mpdf_', '')
-            resp = send_simple_message(chat_id, f"📥 កំពុងបង្កើត Monthly PDF Dashboard សម្រាប់ខែ <b>{sel_month}</b> ...")
+            resp = send_simple_message(chat_id, f"📥 កំពុងបង្កើត PDF Dashboard សម្រាប់ខែ <b>{sel_month}</b> ...")
             loading_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
             threading.Thread(target=generate_and_send_pdf, args=(sel_month, chat_id, True, loading_id)).start()
         elif data == 'ask_specific_date' or data == 'back_to_months':
