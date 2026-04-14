@@ -210,7 +210,9 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.cell(0, 8, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="C")
         pdf.set_font("Helvetica", "", 11); pdf.set_text_color(*TEXT_MUTED)
         title_type = "MONTHLY EXECUTIVE SUMMARY" if is_monthly else "DAILY PERFORMANCE REPORT"
-        pdf.cell(0, 6, f"{title_type}  •  {report_data['display_date'].upper()}", ln=True, align="C")
+        
+        # FIXED: Removed the unsupported Unicode bullet point '•', replaced with '|'
+        pdf.cell(0, 6, f"{title_type}  |  {report_data['display_date'].upper()}", ln=True, align="C")
         
         # Elegant Divider
         pdf.set_draw_color(229, 231, 235); pdf.set_line_width(0.5)
@@ -221,7 +223,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             if pdf.get_y() > 240: pdf.add_page()
             x_start, y_start = 15, pdf.get_y()
             
-            # Draw Card Background (Clean, shadowless modern look)
+            # Draw Card Background
             pdf.set_fill_color(255, 255, 255); pdf.set_draw_color(229, 231, 235)
             pdf.rect(x_start, y_start, 180, 52, 'DF')
             
@@ -298,7 +300,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         
         plt.figure(figsize=(9, 4))
         ax = plt.gca()
-        # Remove borders for clean look
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_color('#E5E7EB')
@@ -311,13 +312,11 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         plt.ylim(0, max(max(achieved_pct) + 20, 110))
         plt.grid(axis='y', linestyle='-', alpha=0.4, color='#E5E7EB')
         
-        # Add labels directly on top of bars cleanly
         for bar in bars:
             height = bar.get_height()
             plt.text(bar.get_x() + bar.get_width()/2, height + 2, f'{height}%', 
                      ha='center', va='bottom', fontsize=8, fontweight='bold', color='#1E40AF')
         
-        # Save transparent chart
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
             plt.savefig(tmp.name, format='png', transparent=True, dpi=200, bbox_inches='tight')
             chart_path = tmp.name
@@ -325,16 +324,15 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         
         pdf.image(chart_path, x=20, y=pdf.get_y(), w=170)
         os.remove(chart_path)
-        pdf.set_y(pdf.get_y() + 65) # Jump past chart
+        pdf.set_y(pdf.get_y() + 65) 
 
         # 5. Minimalist QR & Footer
-        qr = qrcode.QRCode(version=1, border=1, box_size=10) # Smaller border
+        qr = qrcode.QRCode(version=1, border=1, box_size=10)
         qr.add_data("https://t.me/OUDOM333"); qr.make(fit=True)
         img_qr = qr.make_image(fill_color="#1F2937", back_color="white").convert('RGB')
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as t_qr:
             img_qr.save(t_qr.name); q_p = t_qr.name
         
-        # Place QR bottom right
         pdf.set_fill_color(255, 255, 255)
         pdf.rect(179, 259, 18, 18, 'F')
         pdf.image(q_p, x=180, y=260, w=16); os.remove(q_p)
@@ -344,8 +342,9 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.set_x(120); pdf.set_font("Helvetica", "", 7); pdf.set_text_color(*TEXT_MUTED)
         pdf.cell(57, 4, "@OUDOM333", ln=True, align="R")
 
-        # Footer Centered
         pdf.set_y(-15); pdf.set_font("Helvetica", "", 8); pdf.set_text_color(156, 163, 175)
+        
+        # FIXED: Removed the unsupported Unicode bullet point '•', replaced with '|'
         pdf.cell(0, 10, f"Powered by OTO Messages  |  Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", 0, 0, 'C')
         
         f_n = f"HLCC_Report_{report_data['search_key']}.pdf"; f_p = os.path.join(tempfile.gettempdir(), f_n); pdf.output(f_p)
