@@ -15,7 +15,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import qrcode
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 app = Flask(__name__)
 
@@ -169,24 +169,18 @@ def fetch_report_data(target_date, is_monthly=False):
             "has_data": True, "pages": pages_data}, True
 
 # ==========================================
-# Premium Style PDF Design (Single Long Page)
+# Premium Style PDF Design (Optimized for Mobile)
 # ==========================================
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
         try: target_date = parser.parse(requested_date_str)
         except: return
         report_data, is_success = fetch_report_data(target_date, is_monthly)
-        
-        keyboard = {"inline_keyboard": [
-            [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}, {"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
-            [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]
-        ]}
-
         if not is_success: return
         
-        # --- ប្រើប្រាស់ទំហំក្រដាសវែង (Custom Long Page) ដើម្បីដាក់ចូលក្នុងទំព័រតែមួយ ---
-        # ទទឹង A4 = 210mm, កម្ពស់ប៉ាន់ស្មាន 700mm ដើម្បីឱ្យគ្រប់គ្រាន់សម្រាប់ 7 Cards + Chart
-        pdf = FPDF(orientation='P', unit='mm', format=(210, 650)) 
+        # PDF Page Dimensions (Long Page for scrolling)
+        pdf_w, pdf_h = 210, 680
+        pdf = FPDF(orientation='P', unit='mm', format=(pdf_w, pdf_h)) 
         pdf.set_auto_page_break(auto=False)
         pdf.add_page()
         
@@ -198,17 +192,26 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         logo_path = 'logo.png'
         bg_path = 'BG.png'
 
-        # 1. Background Rendering (Fixed for Mobile - Safe Opacity)
+        # 1. Background Rendering (MI BROWSER COMPATIBLE FIX)
+        # Instead of PDF opacity, we pre-process the image alpha
         if os.path.exists(bg_path):
-            # ដើម្បីកុំឱ្យខ្មៅខ្លាំងលើទូរស័ព្ទ យើងប្រើការកំណត់ Alpha Context ដែលមានសុវត្ថិភាពជាង
-            with pdf.local_context(fill_opacity=0.08): 
-                pdf.image(bg_path, x=0, y=0, w=210, h=650)
+            try:
+                with Image.open(bg_path) as img:
+                    img = img.convert("RGBA")
+                    alpha = img.split()[3]
+                    alpha = alpha.point(lambda p: p * 0.08) # Set 8% opacity in pixels
+                    img.putalpha(alpha)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_bg:
+                        img.save(tmp_bg.name)
+                        pdf.image(tmp_bg.name, x=0, y=0, w=pdf_w, h=pdf_h)
+                        os.remove(tmp_bg.name)
+            except: pass
         
         # 2. Executive Header
         if os.path.exists(logo_path):
-            logo_w = 55 
-            pdf.image(logo_path, x=(210 - logo_w)/2, y=12, w=logo_w)
-            pdf.set_y(65)
+            logo_w = 58 
+            pdf.image(logo_path, x=(pdf_w - logo_w)/2, y=12, w=logo_w)
+            pdf.set_y(70)
         else: pdf.set_y(25)
 
         pdf.set_font("Helvetica", "B", 18); pdf.set_text_color(*PRIMARY_BLUE)
@@ -218,9 +221,9 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.cell(0, 6, f"{title_type}  |  {report_data['display_date'].upper()}", ln=True, align="C")
         
         pdf.set_draw_color(229, 231, 235); pdf.set_line_width(0.5)
-        pdf.line(20, pdf.get_y() + 4, 190, pdf.get_y() + 4); pdf.ln(10)
+        pdf.line(20, pdf.get_y() + 4, 190, pdf.get_y() + 4); pdf.ln(12)
 
-        # 3. Luxury Cards Layout
+        # 3. Cards Layout
         for page in report_data['pages']:
             x_start, y_start = 15, pdf.get_y()
             pdf.set_fill_color(255, 255, 255); pdf.set_draw_color(229, 231, 235)
@@ -257,57 +260,53 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             bar_x, bar_y = pdf.get_x() + 2, pdf.get_y() + 1.2
             pdf.set_fill_color(243, 244, 246); pdf.rect(bar_x, bar_y, 45, 2.5, 'F')
             achieved = float(page['rate_sale']); fill_w = (min(achieved, 100) / 100) * 45
-            pdf.set_fill_color(*ACCENT_BLUE); 
-            if fill_w > 0: pdf.rect(bar_x, bar_y, fill_w, 2.5, 'F')
+            pdf.set_fill_color(*ACCENT_BLUE); if fill_w > 0: pdf.rect(bar_x, bar_y, fill_w, 2.5, 'F')
             pdf.ln(10)
 
-        # 4. Premium Modern Chart (Integrated on same page)
+        # 4. Chart Section
         pdf.ln(8)
-        pdf.set_font("Helvetica", "B", 14); pdf.set_text_color(*PRIMARY_BLUE)
-        pdf.cell(0, 10, "ACHIEVEMENT OVERVIEW", ln=True, align="C")
-        
+        pdf.set_font("Helvetica", "B", 14); pdf.set_text_color(*PRIMARY_BLUE); pdf.cell(0, 10, "ACHIEVEMENT OVERVIEW (%)", ln=True, align="C")
         achieved_pct = [float(p['rate_sale']) for p in report_data['pages']]
         achieved_str = [p['rate_sale'] for p in report_data['pages']]
         page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
-        
         plt.figure(figsize=(9, 4.2))
-        ax = plt.gca()
-        ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+        ax = plt.gca(); ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
         ax.spines['left'].set_color('#E5E7EB'); ax.spines['bottom'].set_color('#E5E7EB')
         bars = plt.bar(page_names, achieved_pct, color='#3B82F6', alpha=0.85, width=0.5)
         plt.axhline(y=100, color='#10B981', linestyle='--', alpha=0.6, linewidth=1.2)
         plt.text(-0.45, 102, 'Goal 100%', color='#10B981', fontsize=7, fontweight='bold')
-        plt.ylabel('Target Achieved (%)', fontsize=9, color='#6B7280')
         plt.ylim(0, max(max(achieved_pct) + 25, 120)); plt.grid(axis='y', linestyle='-', alpha=0.3, color='#E5E7EB')
         for bar, rate_str in zip(bars, achieved_str):
             h = bar.get_height()
             plt.text(bar.get_x() + bar.get_width()/2, h + 3, f'{rate_str}%', ha='center', va='bottom', fontsize=8, fontweight='bold', color='#1E40AF')
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-            plt.savefig(tmp.name, format='png', transparent=True, dpi=200, bbox_inches='tight')
-            chart_path = tmp.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_c:
+            plt.savefig(tmp_c.name, format='png', transparent=True, dpi=200, bbox_inches='tight')
+            pdf.image(tmp_c.name, x=20, y=pdf.get_y(), w=170)
+            os.remove(tmp_c.name)
         plt.close()
-        pdf.image(chart_path, x=20, y=pdf.get_y(), w=170); os.remove(chart_path)
         
-        # 5. Centered QR Code & Footer (At bottom of long page)
-        qr = qrcode.QRCode(version=1, border=1, box_size=10)
-        qr.add_data("https://t.me/OUDOM333"); qr.make(fit=True)
+        # 5. FOOTER AREA (QR next to Credit)
+        footer_base_y = 660 # Near the bottom
+        
+        # Generate QR
+        qr = qrcode.QRCode(version=1, border=1, box_size=10); qr.add_data("https://t.me/OUDOM333"); qr.make(fit=True)
         img_qr = qr.make_image(fill_color="#1F2937", back_color="white").convert('RGB')
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as t_qr:
-            img_qr.save(t_qr.name); q_p = t_qr.name
+            img_qr.save(t_qr.name)
+            qr_w = 16
+            pdf.image(t_qr.name, x=175, y=footer_base_y - 6, w=qr_w)
+            os.remove(t_qr.name)
         
-        qr_y, qr_w = pdf.get_y() + 75, 18
-        qr_x = (210 - qr_w) / 2 
-        pdf.set_fill_color(255, 255, 255); pdf.rect(qr_x - 1, qr_y - 1, qr_w + 2, qr_w + 2, 'F')
-        pdf.image(q_p, x=qr_x, y=qr_y, w=qr_w); os.remove(q_p)
-        
-        pdf.set_y(qr_y + qr_w + 1)
-        pdf.set_font("Helvetica", "B", 7); pdf.set_text_color(*PRIMARY_BLUE)
-        pdf.cell(0, 4, "SCAN FOR HELP & SUPPORT: @OUDOM333", ln=True, align="C")
-        
-        pdf.set_y(635) # Fixed near the very bottom of long page
+        # Credit Text
+        pdf.set_y(footer_base_y)
+        pdf.set_x(20)
         pdf.set_font("Helvetica", "", 8); pdf.set_text_color(156, 163, 175)
-        pdf.cell(0, 10, f"Powered by OTO Messages  |  Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", 0, 0, 'C')
+        pdf.cell(150, 4, f"Powered by OTO Messages  |  Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", 0, 0, 'L')
+        
+        # Help link text next to QR
+        pdf.set_xy(165, footer_base_y + 10)
+        pdf.set_font("Helvetica", "B", 7); pdf.set_text_color(*PRIMARY_BLUE)
+        pdf.cell(35, 4, "HELP & SUPPORT: @OUDOM333", 0, 0, 'R')
         
         f_n = f"HLCC_Premium_{report_data['search_key']}.pdf"; f_p = os.path.join(tempfile.gettempdir(), f_n); pdf.output(f_p)
         send_document(target_chat_id, f_p, f"💎 <b>HLCC Executive Dashboard</b>\n📅 {report_data['display_date']}", thumb_path=logo_path)
@@ -330,15 +329,15 @@ def webhook():
     if "message" in update and "text" in update["message"]:
         msg = update["message"]; text = msg.get("text", ""); chat_id = msg["chat"]["id"]
         if text.startswith("/start"):
-            keyboard = {"inline_keyboard": [[{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}, {"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],[{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]]}
-            send_simple_message(chat_id, "👋 <b>Welcome to HLCC Reporting System!</b>", keyboard)
+            kb = {"inline_keyboard": [[{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}, {"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],[{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]]}
+            send_simple_message(chat_id, "👋 <b>Welcome to HLCC Reporting System!</b>", kb)
             return jsonify({"status": "ok"})
     if "callback_query" in update:
         cb = update["callback_query"]; chat_id, data, c_m_id = cb["message"]["chat"]["id"], cb["data"], cb["message"]["message_id"]
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
         if data == 'ask_monthly_report':
             months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-            year = datetime.now(tz).year; rows, curr = [], []
+            rows, curr = [], []; year = datetime.now(tz).year
             for i in range(12):
                 curr.append({"text": months[i], "callback_data": f"mreport_{year}-{i+1:02d}"})
                 if len(curr) == 3 or i == 11: rows.append(curr); curr = []
@@ -349,15 +348,16 @@ def webhook():
             l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
             threading.Thread(target=generate_and_send_pdf, args=(sel_month, chat_id, True, l_id)).start()
         elif data == 'ask_specific_date' or data == 'back_to_months':
-            year = datetime.now(tz).year; months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-            rows, curr = [], []
+            months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            rows, curr = [], []; year = datetime.now(tz).year
             for i in range(12):
                 curr.append({"text": months[i], "callback_data": f"month_{year}-{i+1:02d}"})
                 if len(curr) == 3 or i == 11: rows.append(curr); curr = []
             send_simple_message(chat_id, "📅 Select Month:", {"inline_keyboard": rows})
         elif data.startswith('month_'):
             delete_message(chat_id, c_m_id); sel_month = data.replace('month_', '')
-            y, m = map(int, sel_month.split('-')); days = calendar.monthrange(y, m)[1]; rows, curr = [], []
+            y, m = map(int, sel_month.split('-')); days = 31 # Simple fallback
+            rows, curr = [], []
             for i in range(1, days + 1):
                 curr.append({"text": str(i), "callback_data": f"report_{sel_month}-{i:02d}"})
                 if len(curr) == 5 or i == days: rows.append(curr); curr = []
