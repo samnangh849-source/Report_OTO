@@ -7,15 +7,15 @@ import calendar
 import requests
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from dateutil import parser
 import pytz
 from fpdf import FPDF
 import tempfile
 
-app = Flask(__name__)
+# កំណត់ឲ្យ Flask ស្គាល់ folder 'templates'
+app = Flask(__name__, template_folder='templates')
 
-# ១. ទាញយកព័ត៌មានពី Environment Variables របស់ Render
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', 'ដាក់_TOKEN_ទីនេះ')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', 'ដាក់_CHAT_ID_ទីនេះ')
 SPREADSHEET_ID = os.getenv('SPREADSHEET_ID', 'ដាក់_ID_Sheet_ទីនេះ')
@@ -47,15 +47,6 @@ def send_simple_message(chat_id, text, reply_markup=None):
         payload["reply_markup"] = reply_markup
     telegram_api("sendMessage", payload)
 
-def edit_message_text(chat_id, message_id, text, reply_markup=None):
-    payload = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML"}
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-    telegram_api("editMessageText", payload)
-
-def answer_callback(callback_id):
-    telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
-
 def send_document(chat_id, file_path, caption):
     with open(file_path, 'rb') as f:
         payload = {
@@ -65,7 +56,7 @@ def send_document(chat_id, file_path, caption):
         telegram_api("sendDocument", payload, is_multipart=True)
 
 # ==========================================
-# មុខងារភ្ជាប់ទៅកាន់ Google Sheet API
+# មុខងារភ្ជាប់ Google Sheet API & ទាញទិន្នន័យ (រក្សាទុកកូដដដែល)
 # ==========================================
 def get_google_sheet():
     if not GOOGLE_CREDENTIALS_JSON: return None
@@ -78,9 +69,6 @@ def get_google_sheet():
     except:
         return None
 
-# ==========================================
-# មុខងារស្នូល៖ ទាញយកទិន្នន័យ (ប្រើរួមសម្រាប់ Text និង PDF)
-# ==========================================
 def fetch_report_data(target_date):
     ss = get_google_sheet()
     if not ss: return None, False
@@ -89,10 +77,7 @@ def fetch_report_data(target_date):
     today_month_search = target_date.strftime("%Y-%m")
     today_for_display = target_date.strftime("%d/%m/%Y")
     
-    target_y = target_date.year
-    target_m = target_date.month
-    target_d = target_date.day
-    
+    target_y, target_m, target_d = target_date.year, target_date.month, target_date.day
     has_data = False
     pages_data = []
 
@@ -150,7 +135,6 @@ def fetch_report_data(target_date):
 
         if num_chat > 0 or total_sale_amount > 0:
             has_data = True
-            
             rate_booking = f"{(online_booking / num_chat) * 100:.2f}" if num_chat > 0 else "0.00"
             rate_visit = f"{(visit / num_chat) * 100:.2f}" if num_chat > 0 else "0.00"
             rate_close_deal = f"{(close_deal / num_chat) * 100:.2f}" if num_chat > 0 else "0.00"
@@ -179,29 +163,23 @@ def fetch_report_data(target_date):
 # ==========================================
 def generate_and_send_pdf(requested_date_str, target_chat_id):
     try:
-        clean_date_str = re.sub(r'[()]', '', requested_date_str).strip()
-        target_date = parser.parse(clean_date_str)
+        target_date = parser.parse(requested_date_str)
     except:
-        send_simple_message(target_chat_id, "❌ កាលបរិច្ឆេទមិនត្រឹមត្រូវ។")
         return
 
-    # ទាញទិន្នន័យ
     report_data, is_success = fetch_report_data(target_date)
     if not is_success or not report_data['has_data']:
-        send_simple_message(target_chat_id, "📭 មិនមានទិន្នន័យសម្រាប់ Export PDF ទេ។")
+        send_simple_message(target_chat_id, "📭 មិនមានទិន្នន័យសម្រាប់ Export PDF ទេនាថ្ងៃនោះ។")
         return
 
-    # ការរចនា PDF (Dashboard Design)
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
-    # ពណ៌ Theme 
     blue_color = (41, 128, 185)
     light_gray = (240, 240, 240)
     dark_text = (44, 62, 80)
 
-    # ផ្នែកក្បាល (Header)
     pdf.set_font("Helvetica", "B", 18)
     pdf.set_text_color(*blue_color)
     pdf.cell(0, 10, "Marketing Sale Report Dashboard", ln=True, align="C")
@@ -210,20 +188,17 @@ def generate_and_send_pdf(requested_date_str, target_chat_id):
     pdf.cell(0, 8, f"Date: {report_data['today_for_display']}", ln=True, align="C")
     pdf.ln(5)
 
-    # គូរទិន្នន័យសម្រាប់ Page នីមួយៗ
     for page in report_data['pages']:
-        # ចំណងជើង Page
         pdf.set_font("Helvetica", "B", 14)
         pdf.set_fill_color(*blue_color)
         pdf.set_text_color(255, 255, 255)
         pdf.cell(0, 10, f"  Page: {page['page_name']}", ln=True, fill=True)
         pdf.ln(3)
 
-        # តារាង Metrics ជួរទី១
         pdf.set_font("Helvetica", "B", 10)
         pdf.set_text_color(*dark_text)
         pdf.set_fill_color(*light_gray)
-        col_w = 47.5  # បែងចែកជា 4 ជួរ (190mm / 4)
+        col_w = 47.5  
         
         pdf.cell(col_w, 8, "Num Chat", 1, 0, 'C', fill=True)
         pdf.cell(col_w, 8, "Booking", 1, 0, 'C', fill=True)
@@ -237,7 +212,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id):
         pdf.cell(col_w, 8, str(page['close_deal']), 1, 1, 'C')
         pdf.ln(2)
 
-        # តារាង Financial & Package
         pdf.set_font("Helvetica", "B", 10)
         pdf.cell(63.3, 8, "Packages", 1, 0, 'C', fill=True)
         pdf.cell(63.3, 8, "Daily Sale ($)", 1, 0, 'C', fill=True)
@@ -249,7 +223,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id):
         pdf.cell(63.3, 8, f"${page['current_month_sale_amount']:.2f}", 1, 1, 'C')
         pdf.ln(4)
 
-        # តារាង Conversion Rates
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(*blue_color)
         pdf.cell(0, 8, "Conversion Rates (%)", 0, 1, 'L')
@@ -271,74 +244,55 @@ def generate_and_send_pdf(requested_date_str, target_chat_id):
         pdf.cell(rate_w, 7, f"{page['rate_package']}%", 1, 0, 'C')
         pdf.cell(rate_w, 7, f"{page['rate_daily_amount']}%", 1, 0, 'C')
         pdf.cell(rate_w, 7, f"{page['rate_monthly_amount']}%", 1, 1, 'C')
-        pdf.ln(10) # ឃ្លាតពី Page មួយទៅ Page មួយទៀត
+        pdf.ln(10) 
 
     pdf.set_y(-20)
     pdf.set_font("Helvetica", "I", 8)
     pdf.set_text_color(128)
-    pdf.cell(0, 10, f"Generated automatically by System • Date: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
+    pdf.cell(0, 10, f"Generated automatically by System - Date: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
 
-    # រក្សាទុក PDF ទៅក្នុង /tmp របស់ Render រួចបញ្ជូនទៅ Telegram
     temp_dir = tempfile.gettempdir()
     file_path = os.path.join(temp_dir, f"Sale_Report_{report_data['today_for_search']}.pdf")
     pdf.output(file_path)
 
-    # ផ្ញើ PDF ទៅ Telegram
     send_document(target_chat_id, file_path, f"📊 <b>Dashboard Report (PDF)</b>\n📅 ថ្ងៃទី: {report_data['today_for_display']}\n\n<i>ទាញយកឯកសារនេះដើម្បីមើលទិន្នន័យបានច្បាស់ល្អ។</i>")
     
-    # លុបឯកសារចេញពី Render វិញដើម្បីកុំអោយពេញ Memory
     if os.path.exists(file_path):
         os.remove(file_path)
 
 
 # ==========================================
-# មុខងារបញ្ជូនសារ Text (ដូចដើម តែប្រើ Function ថ្មី)
+# មុខងារបញ្ជូនសារ Text 
 # ==========================================
 def generate_and_send_report(requested_date_str, target_chat_id):
     global report_cache
-    
     try:
-        if requested_date_str:
-            clean_date_str = re.sub(r'[()]', '', requested_date_str).strip()
-            target_date = parser.parse(clean_date_str)
-        else:
-            target_date = datetime.now(tz)
-    except ValueError:
-        send_simple_message(target_chat_id, f"❌ កាលបរិច្ឆេទ <b>'{requested_date_str}'</b> មិនត្រឹមត្រូវទេ។")
+        target_date = parser.parse(requested_date_str)
+    except:
         return
 
     today_for_search = target_date.strftime("%Y-%m-%d")
     today_for_display = target_date.strftime("%d/%m/%Y")
     cache_key = f"REPORT_v{CACHE_VERSION}_{today_for_search}"
-    
-    # រៀបចំប៊ូតុង ដែលមានបញ្ចូល "Export PDF" បន្ថែម
-    keyboard = {"inline_keyboard": [
-        [{"text": "📥 ទាញយកជា PDF (Export Dashboard)", "callback_data": f"pdf_{today_for_search}"}],
-        [{"text": "📅 ឆែកថ្ងៃផ្សេង (Specific Date)", "callback_data": "ask_specific_date"}]
-    ]}
+
+    # ប៊ូតុងថ្មីសម្រាប់ផ្ញើត្រឡប់ទៅវិញ បន្ទាប់ពីទាញ Report ចេញពី Mini App 
+    RENDER_WEB_APP_URL = f"https://report-oto.onrender.com/webapp?chat_id={target_chat_id}"
+    keyboard = {"inline_keyboard": [[{"text": "📱 បើកផ្ទាំង Dashboard (Mini App)", "web_app": {"url": RENDER_WEB_APP_URL}}]]}
 
     if cache_key in report_cache:
         cached_msg = report_cache[cache_key]
         if cached_msg == "EMPTY":
-            if requested_date_str or NOTIFY_EMPTY_DATA:
-                send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ថ្ងៃ <b>{today_for_display}</b> នេះទេ។")
+            send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ថ្ងៃ <b>{today_for_display}</b> នេះទេ។")
             return
         send_simple_message(target_chat_id, cached_msg, keyboard)
         return
 
-    # ទាញទិន្នន័យ
     report_data, is_success = fetch_report_data(target_date)
-    if not is_success:
-        send_simple_message(target_chat_id, "⚠️ <b>បញ្ហា:</b> មិនអាចភ្ជាប់ទៅកាន់ Google Sheet បានទេ។")
-        return
-        
-    if not report_data['has_data']:
+    if not is_success or not report_data['has_data']:
         report_cache[cache_key] = "EMPTY"
-        if requested_date_str or NOTIFY_EMPTY_DATA:
-            send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ថ្ងៃ <b>{today_for_display}</b> នេះទេ។")
+        send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ថ្ងៃ <b>{today_for_display}</b> នេះទេ។")
         return
 
-    # តម្រៀបសារ Text ធម្មតា
     message = f"Dear Management\n💻 Marketing Sale Report\n🗓️ Date (<b>{today_for_display}</b>)\n\n"
     for page in report_data['pages']:
         message += f"🌐 Page: <b>{page['page_name']}</b>\n"
@@ -364,87 +318,37 @@ def generate_and_send_report(requested_date_str, target_chat_id):
 
 
 # ==========================================
-# Webhook Route (ទទួលសំណើពី Telegram)
+# Flask Routes សម្រាប់ Web App និង API
 # ==========================================
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    update = request.get_json()
-    if not update: return jsonify({"status": "ok"})
 
-    if "callback_query" in update:
-        cb = update["callback_query"]
-        cb_id = cb["id"]
-        chat_id = cb["message"]["chat"]["id"]
-        message_id = cb["message"]["message_id"]
-        data = cb["data"]
+# ១. បង្ហាញផ្ទាំង UI នៅពេលចុចប៊ូតុងក្នុង Telegram
+@app.route('/webapp')
+def webapp():
+    # Render នឹងទាញយកឯកសារ HTML ដែលយើងបានបង្កើតមកបង្ហាញ
+    return render_template('index.html')
 
-        threading.Thread(target=answer_callback, args=(cb_id,)).start()
+# ២. ទទួលការបញ្ជាពីផ្ទាំង UI
+@app.route('/api/trigger', methods=['POST'])
+def api_trigger():
+    data = request.json
+    target_date = data.get('date')
+    report_type = data.get('type')  # 'text' ឬ 'pdf'
+    chat_id = data.get('chat_id')
 
-        # ប្រសិនបើចុចប៊ូតុង ទាញយក PDF 
-        if data.startswith('pdf_'):
-            selected_date = data.replace('pdf_', '')
-            threading.Thread(target=send_simple_message, args=(chat_id, f"📥 កំពុងបង្កើតឯកសារ PDF សម្រាប់ថ្ងៃ <b>{selected_date}</b> ...")).start()
-            # ដំណើរការបង្កើត PDF រួចផ្ញើចេញ
-            threading.Thread(target=generate_and_send_pdf, args=(selected_date, chat_id)).start()
+    if not target_date or not chat_id:
+        return jsonify({"status": "error", "message": "Missing parameters"}), 400
 
-        # ប្រសិនបើចុចប៊ូតុង ឆែកថ្ងៃផ្សេង
-        elif data in ['ask_specific_date', 'back_to_months']:
-            current_year = datetime.now(tz).year
-            month_names = ["មករា (Jan)", "កុម្ភៈ (Feb)", "មីនា (Mar)", "មេសា (Apr)", "ឧសភា (May)", "មិថុនា (Jun)", 
-                           "កក្កដា (Jul)", "សីហា (Aug)", "កញ្ញា (Sep)", "តុលា (Oct)", "វិច្ឆិកា (Nov)", "ធ្នូ (Dec)"]
-            keyboard_rows = []
-            current_row = []
-            for i in range(12):
-                month_num = f"{i+1:02d}"
-                current_row.append({"text": month_names[i], "callback_data": f"month_{current_year}-{month_num}"})
-                if len(current_row) == 3 or i == 11:
-                    keyboard_rows.append(current_row)
-                    current_row = []
-            inline_kb = {"inline_keyboard": keyboard_rows}
-            msg = f"📅 សូមជ្រើសរើស <b>ខែ</b> ក្នុងឆ្នាំ {current_year} ៖"
-            
-            if data == 'back_to_months': threading.Thread(target=edit_message_text, args=(chat_id, message_id, msg, inline_kb)).start()
-            else: threading.Thread(target=send_simple_message, args=(chat_id, msg, inline_kb)).start()
+    # ផ្ញើសារប្រាប់ជាមុនថា "កំពុងដំណើរការ..."
+    file_type_text = "ឯកសារ PDF" if report_type == 'pdf' else "របាយការណ៍អត្ថបទ"
+    send_simple_message(chat_id, f"⏳ កំពុងដំណើរការ <b>{file_type_text}</b> សម្រាប់ថ្ងៃ <b>{target_date}</b> ...")
 
-        # ប្រសិនបើចុចរើសខែ
-        elif data.startswith('month_'):
-            selected_month = data.replace('month_', '')
-            year, month = map(int, selected_month.split('-'))
-            days_in_month = calendar.monthrange(year, month)[1]
-            keyboard_rows = []
-            current_row = []
-            for i in range(1, days_in_month + 1):
-                day_num = f"{i:02d}"
-                date_value = f"{selected_month}-{day_num}"
-                current_row.append({"text": str(i), "callback_data": f"report_{date_value}"})
-                if len(current_row) == 5 or i == days_in_month:
-                    keyboard_rows.append(current_row)
-                    current_row = []
-            keyboard_rows.append([{"text": "⬅️ ត្រឡប់ក្រោយ (Back)", "callback_data": "back_to_months"}])
-            inline_kb = {"inline_keyboard": keyboard_rows}
-            msg = f"📅 សូមជ្រើសរើស <b>ថ្ងៃទី</b> សម្រាប់ខែ {selected_month} ៖"
-            threading.Thread(target=edit_message_text, args=(chat_id, message_id, msg, inline_kb)).start()
+    # ដំណើរការទាញយកក្នុង Background (Asynchronous)
+    if report_type == 'pdf':
+        threading.Thread(target=generate_and_send_pdf, args=(target_date, chat_id)).start()
+    else:
+        threading.Thread(target=generate_and_send_report, args=(target_date, chat_id)).start()
 
-        # ប្រសិនបើចុចរើសថ្ងៃ
-        elif data.startswith('report_'):
-            selected_date = data.replace('report_', '')
-            msg = f"⏳ កំពុងស្វែងរកទិន្នន័យសម្រាប់ថ្ងៃ <b>{selected_date}</b> ..."
-            threading.Thread(target=edit_message_text, args=(chat_id, message_id, msg)).start()
-            threading.Thread(target=generate_and_send_report, args=(selected_date, chat_id)).start()
-
-    # ខ. វាយបញ្ចូលអត្ថបទ
-    elif "message" in update and "text" in update["message"]:
-        text = update["message"]["text"].strip()
-        chat_id = update["message"]["chat"]["id"]
-        
-        date_match = re.search(r'\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}-[a-zA-Z]{3}-\d{2,4}\b', text)
-        if date_match:
-            extracted_date = date_match.group(0)
-            if text.startswith('/report') or ("វាយបញ្ចូលថ្ងៃខែ" in update["message"].get("reply_to_message", {}).get("text", "")):
-                send_simple_message(chat_id, f"⏳ កំពុងស្វែងរកទិន្នន័យសម្រាប់ថ្ងៃ <b>{extracted_date}</b> ...")
-                threading.Thread(target=generate_and_send_report, args=(extracted_date, chat_id)).start()
-
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "message": "Triggered"})
 
 
 @app.route('/clear_cache', methods=['GET', 'POST'])
@@ -452,7 +356,7 @@ def clear_cache():
     global report_cache, CACHE_VERSION
     report_cache = {}
     CACHE_VERSION += 1
-    return jsonify({"status": "success", "message": f"Cache cleared. New version: {CACHE_VERSION}"})
+    return jsonify({"status": "success", "message": f"Cache cleared."})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
