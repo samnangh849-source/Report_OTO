@@ -34,7 +34,7 @@ TARGET_PAGES = ['Main Page', 'Sovanna', 'Esthetic RX', 'Toul Kork', 'Mega Mall',
 tz = pytz.timezone('Asia/Phnom_Penh')
 
 report_cache = {}
-CACHE_VERSION = 3
+CACHE_VERSION = 5
 
 # ==========================================
 # Telegram APIs
@@ -99,10 +99,14 @@ def fetch_report_data(target_date, is_monthly=False):
     has_data = False
     pages_data = []
 
+    try:
+        all_worksheets = {ws.title.strip(): ws for ws in ss.worksheets()}
+    except: all_worksheets = {}
+
     for page_name in TARGET_PAGES:
-        try:
-            worksheet = ss.worksheet(page_name)
-            data = worksheet.get_all_values()
+        worksheet = all_worksheets.get(page_name.strip())
+        if not worksheet: continue
+        try: data = worksheet.get_all_values()
         except: continue
         if len(data) <= 4: continue
         
@@ -118,9 +122,8 @@ def fetch_report_data(target_date, is_monthly=False):
             if len(row) < 2 or not row[1]: continue
             str_date = str(row[1]).strip()
             is_match_day = is_match_month = False
-            
             try:
-                p_date = parser.parse(str_date)
+                p_date = parser.parse(str_date, fuzzy=False)
                 if p_date.year == target_y and p_date.month == target_m:
                     is_match_month = True
                     if p_date.day == target_d: is_match_day = True
@@ -162,15 +165,22 @@ def fetch_report_data(target_date, is_monthly=False):
             "has_data": has_data, "pages": pages_data}, True
 
 # ==========================================
-# Generate PDF
+# Generate PDF (Standard Action)
 # ==========================================
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
         try: target_date = parser.parse(requested_date_str)
         except: return
         report_data, is_success = fetch_report_data(target_date, is_monthly)
+        
+        # ប៊ូតុងបញ្ជាបន្ទាប់ (Menu)
+        keyboard = {"inline_keyboard": [
+            [{"text": "📅 ប្រចាំថ្ងៃ", "callback_data": "ask_specific_date"}, {"text": "📊 ប្រចាំខែ", "callback_data": "ask_monthly_report"}],
+            [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]
+        ]}
+
         if not is_success or not report_data['has_data']:
-            send_simple_message(target_chat_id, "📭 មិនមានទិន្នន័យសម្រាប់ Export PDF ទេ។")
+            send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ {report_data['display_date']} ទេ។", keyboard)
             return
         
         pdf = FPDF(orientation='P', unit='mm', format='A4')
@@ -178,20 +188,19 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         hlcc_blue, hlcc_grey, petal_pink = (52, 157, 216), (60, 60, 60), (255, 220, 230)
         logo_path = 'logo.png'
 
+        # Background & Watermark
         with pdf.local_context(fill_opacity=0.06):
             pdf.set_fill_color(*petal_pink)
             random.seed(42)
             for _ in range(25):
                 x, y, w = random.randint(10, 190), random.randint(10, 280), random.randint(12, 30)
                 pdf.ellipse(x, y, w, w * 0.6, style="F")
-
         if os.path.exists(logo_path):
-            with pdf.local_context(fill_opacity=0.15):
-                pdf.image(logo_path, x=35, y=85, w=140)
-            pdf.image(logo_path, x=85, y=10, w=40)
-            pdf.set_y(52)
+            with pdf.local_context(fill_opacity=0.15): pdf.image(logo_path, x=35, y=85, w=140)
+            pdf.image(logo_path, x=85, y=10, w=40); pdf.set_y(52)
         else: pdf.set_y(20)
 
+        # Header
         pdf.set_font("Helvetica", "B", 22); pdf.set_text_color(*hlcc_blue)
         pdf.cell(0, 10, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="C")
         pdf.set_font("Helvetica", "B", 13); pdf.set_text_color(*hlcc_grey)
@@ -204,7 +213,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         for page in report_data['pages']:
             pdf.set_font("Helvetica", "B", 12); pdf.set_fill_color(*hlcc_blue); pdf.set_text_color(255, 255, 255)
             pdf.cell(0, 10, f"   PAGE: {page['page_name'].upper()}", ln=True, fill=True); pdf.ln(3)
-            
             pdf.set_font("Helvetica", "B", 9); pdf.set_text_color(100); pdf.set_fill_color(245, 245, 245)
             w4 = 47.5
             pdf.cell(w4, 7, "TOTAL CHATS", 1, 0, 'C', fill=True)
@@ -227,95 +235,44 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             rev = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
             pdf.cell(w3, 9, f"${rev:,.2f}", 1, 0, 'C')
             pdf.cell(w3, 9, f"${page['target_amount']:,.2f}", 1, 1, 'C'); pdf.ln(2)
-            
-            pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(120)
-            pdf.cell(0, 5, "CONVERSION PERFORMANCE:", ln=True)
+            pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(120); pdf.cell(0, 5, "CONVERSION PERFORMANCE:", ln=True)
             pdf.set_font("Helvetica", "", 9); pdf.set_text_color(50)
-            conv = f"Booking: {page['rate_booking']}%  |  Visit: {page['rate_visit']}%  |  Deal: {page['rate_close_deal']}%  |  Achieved: {page['rate_sale']}%"
-            pdf.cell(0, 6, conv, ln=True); pdf.ln(8)
+            pdf.cell(0, 6, f"Booking: {page['rate_booking']}% | Visit: {page['rate_visit']}% | Deal: {page['rate_close_deal']}% | Achieved: {page['rate_sale']}%", ln=True); pdf.ln(8)
 
+        # Graph
         if pdf.get_y() > 180: pdf.add_page()
-        pdf.set_draw_color(200, 200, 200); pdf.set_line_width(0.2)
-        pdf.line(20, pdf.get_y(), 190, pdf.get_y()); pdf.ln(5)
-        
+        plt.figure(figsize=(7, 3.5))
         achieved_pct = [float(p['rate_sale']) for p in report_data['pages']]
         page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
-        plt.figure(figsize=(7, 3.5))
         bars = plt.bar(page_names, achieved_pct, color='#349dd8', width=0.5)
         plt.ylabel('Achieved (%)', fontweight='bold'); plt.title('SALES ACHIEVEMENT (%)', fontweight='bold', pad=15)
         plt.ylim(0, max(max(achieved_pct) + 15, 110)); plt.grid(axis='y', linestyle='--', alpha=0.7)
-        for bar in bars:
-            yval = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2, yval + 2, f'{yval}%', ha='center', va='bottom', fontweight='bold')
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-            plt.savefig(tmp.name, format='png', bbox_inches='tight', dpi=120); c_p = tmp.name
-        plt.close(); pdf.image(c_p, x=35, y=pdf.get_y() + 5, w=130)
-        if os.path.exists(c_p): os.remove(c_p)
+        for bar in bars: plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 2, f'{bar.get_height()}%', ha='center', va='bottom', fontweight='bold')
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp: plt.savefig(tmp.name, format='png', bbox_inches='tight', dpi=120); c_p = tmp.name
+        plt.close(); pdf.image(c_p, x=35, y=pdf.get_y() + 5, w=130); os.remove(c_p)
 
+        # QR & Footer
         qr = qrcode.QRCode(version=1, border=2, box_size=10); qr.add_data("https://t.me/OUDOM333"); qr.make(fit=True)
         img_qr = qr.make_image(fill_color="black", back_color="white").convert('RGB')
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as t_qr:
-            img_qr.save(t_qr.name); q_p = t_qr.name
-        pdf.set_fill_color(255, 255, 255); pdf.rect(174, 261, 22, 22, 'F'); pdf.image(q_p, x=175, y=262, w=20)
-        if os.path.exists(q_p): os.remove(q_p)
-        pdf.set_y(265); pdf.set_x(120); pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*hlcc_blue)
-        pdf.cell(53, 5, "SCAN TO CONTACT DEVELOPER", ln=True, align="R")
-        pdf.set_x(120); pdf.set_font("Helvetica", "", 7); pdf.set_text_color(100); pdf.cell(53, 4, "@OUDOM333", ln=True, align="R")
-        pdf.set_y(-15); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(150)
-        pdf.cell(0, 10, f"System by OTO Messages | Developed by @OUDOM333 | Generated: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as t_qr: img_qr.save(t_qr.name); q_p = t_qr.name
+        pdf.set_fill_color(255, 255, 255); pdf.rect(174, 261, 22, 22, 'F'); pdf.image(q_p, x=175, y=262, w=20); os.remove(q_p)
+        pdf.set_y(265); pdf.set_x(120); pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*hlcc_blue); pdf.cell(53, 5, "SCAN TO CONTACT DEVELOPER", ln=True, align="R")
+        pdf.set_y(-15); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(150); pdf.cell(0, 10, f"System by OTO Messages | Developed by @OUDOM333 | Generated: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
         
-        f_n = f"{'HLCC_Monthly' if is_monthly else 'HLCC_Daily'}_{report_data['search_key']}.pdf"
-        f_p = os.path.join(tempfile.gettempdir(), f_n); pdf.output(f_p)
-        send_document(target_chat_id, f_p, f"📊 <b>HLCC Dashboard</b>\n📅 Date: {report_data['display_date']}")
-        if os.path.exists(f_p): os.remove(f_p)
+        f_n = f"{'Monthly' if is_monthly else 'Daily'}_{report_data['search_key']}.pdf"; f_p = os.path.join(tempfile.gettempdir(), f_n); pdf.output(f_p)
+        send_document(target_chat_id, f_p, f"📊 <b>HLCC {'Monthly' if is_monthly else 'Daily'} Dashboard</b>\n📅 {report_data['display_date']}")
+        send_simple_message(target_chat_id, "✅ របាយការណ៍ត្រូវបានបង្កើតជោគជ័យ។", keyboard)
+        os.remove(f_p)
     finally:
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
 
-# ==========================================
-# Generate Text Report
-# ==========================================
-def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
-    try:
-        try: target_date = parser.parse(requested_date_str)
-        except: return
-        report_data, is_success = fetch_report_data(target_date, is_monthly)
-        today_for_display, search_key = report_data['display_date'], report_data['search_key']
-        cache_key = f"M_REPORT_v{CACHE_VERSION}_{search_key}" if is_monthly else f"D_REPORT_v{CACHE_VERSION}_{search_key}"
-        keyboard = {"inline_keyboard": [
-            [{"text": "📥 PDF", "callback_data": f"{'mpdf_' if is_monthly else 'pdf_'}{search_key}"}],
-            [{"text": "📅 ប្រចាំថ្ងៃ (Daily Report)", "callback_data": "ask_specific_date"}],
-            [{"text": "📊 ប្រចាំខែ (Monthly Report)", "callback_data": "ask_monthly_report"}],
-            [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]
-        ]}
-        if cache_key in report_cache:
-            send_simple_message(target_chat_id, report_cache[cache_key], keyboard); return
-        if not is_success or not report_data['has_data']:
-            report_cache[cache_key] = "EMPTY"; send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ {today_for_display} ទេ។", keyboard); return
-        
-        rep_type = "MONTHLY" if is_monthly else "DAILY"
-        message = f"<b>HLCC – {rep_type} PERFORMANCE REPORT</b>\n📅 Period: {today_for_display}\n\n"
-        for page in report_data['pages']:
-            p_name = page['page_name'].replace(" Page", "").upper()
-            message += f"🌐 <b>PAGE: {p_name}</b>\n----------------------------\n"
-            message += "<b>Activity Summary</b>\n"
-            message += f"Total chats:   <code>{page['num_chat']:<6}</code>\n"
-            message += f"Bookings:      <code>{page['online_booking']:<6}</code>\n"
-            message += f"Visits:        <code>{page['visit']:<6}</code>\n"
-            message += f"Closed deals:  <code>{page['close_deal']:<6}</code>\n"
-            sale_label = "Monthly sales" if is_monthly else "Today's sales"
-            sale_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
-            message += f"{sale_label:<15}: <code>${sale_val:,.2f}</code>\n\n"
-            message += "<b>Conversion Rates</b>\n"
-            message += f"Booking: <code>{page['rate_booking']}%</code> | Visit: <code>{page['rate_visit']}%</code>\n"
-            message += f"Deal:    <code>{page['rate_close_deal']}%</code> | Pkg:   <code>{page['rate_package']}%</code>\n\n"
-            message += "<b>Target Status (Month)</b>\n"
-            message += f"Goal:     <code>${page['target_amount']:,.2f}</code>\n"
-            message += f"Actual:   <code>${page['total_sale_monthly']:,.2f}</code>\n"
-            message += f"Achieved: <b><code>{page['rate_sale']}%</code></b>\n============================\n\n"
-        message += "Thank you 😊"; report_cache[cache_key] = message
-        send_simple_message(target_chat_id, message, keyboard)
-    finally:
-        if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
+@app.route('/api/trigger', methods=['POST'])
+def trigger_api():
+    data = request.get_json(); req_date = data.get('date'); chat_id = data.get('chat_id')
+    resp = send_simple_message(chat_id, f"⏳ កំពុងទាញយក PDF សម្រាប់ថ្ងៃ <b>{req_date}</b> ...")
+    l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
+    threading.Thread(target=generate_and_send_pdf, args=(req_date, chat_id, False, l_id)).start()
+    return jsonify({"status": "processing"})
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -332,14 +289,8 @@ def webhook():
             if len(curr) == 3 or i == 11: rows.append(curr); curr = []
         send_simple_message(chat_id, f"📊 សូមជ្រើសរើស <b>ខែ</b> ៖", {"inline_keyboard": rows})
     elif data.startswith('mreport_'):
-        delete_message(chat_id, current_msg_id)
-        sel_month = data.replace('mreport_', '')
-        resp = send_simple_message(chat_id, f"⏳ កំពុងគណនាទិន្នន័យសរុបប្រចាំខែ <b>{sel_month}</b> ...")
-        l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
-        threading.Thread(target=generate_and_send_report, args=(sel_month, chat_id, True, l_id)).start()
-    elif data.startswith('mpdf_'):
-        sel_month = data.replace('mpdf_', '')
-        resp = send_simple_message(chat_id, f"📥 កំពុងបង្កើត PDF Dashboard សម្រាប់ខែ <b>{sel_month}</b> ...")
+        delete_message(chat_id, current_msg_id); sel_month = data.replace('mreport_', '')
+        resp = send_simple_message(chat_id, f"⏳ កំពុងបង្កើត PDF សរុបខែ <b>{sel_month}</b> ...")
         l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
         threading.Thread(target=generate_and_send_pdf, args=(sel_month, chat_id, True, l_id)).start()
     elif data == 'ask_specific_date' or data == 'back_to_months':
@@ -359,21 +310,14 @@ def webhook():
         send_simple_message(chat_id, f"📅 សូមជ្រើសរើស <b>ថ្ងៃទី</b> សម្រាប់ខែ {sel_month} ៖", {"inline_keyboard": rows})
     elif data.startswith('report_'):
         delete_message(chat_id, current_msg_id); sel_date = data.replace('report_', '')
-        resp = send_simple_message(chat_id, f"⏳ កំពុងស្វែងរកទិន្នន័យសម្រាប់ថ្ងៃ <b>{sel_date}</b> ...")
-        l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
-        threading.Thread(target=generate_and_send_report, args=(sel_date, chat_id, False, l_id)).start()
-    elif data.startswith('pdf_'):
-        sel_date = data.replace('pdf_', '')
-        resp = send_simple_message(chat_id, f"📥 កំពុងបង្កើត PDF Dashboard សម្រាប់ថ្ងៃ <b>{sel_date}</b> ...")
+        resp = send_simple_message(chat_id, f"⏳ កំពុងបង្កើត PDF សម្រាប់ថ្ងៃ <b>{sel_date}</b> ...")
         l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
         threading.Thread(target=generate_and_send_pdf, args=(sel_date, chat_id, False, l_id)).start()
     return jsonify({"status": "ok"})
 
 @app.route('/clear_cache', methods=['GET', 'POST'])
 def clear_cache():
-    global report_cache, CACHE_VERSION
-    report_cache = {}; CACHE_VERSION += 1
-    return jsonify({"status": "success"})
+    global report_cache; report_cache = {}; return jsonify({"status": "success"})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
