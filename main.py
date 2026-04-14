@@ -160,7 +160,7 @@ def fetch_report_data(target_date, is_monthly=False):
             "has_data": has_data, "pages": pages_data}, True
 
 # ==========================================
-# Generate PDF (Dashboard HLCC)
+# Generate PDF (Dashboard HLCC with Background Logo)
 # ==========================================
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False):
     try: target_date = parser.parse(requested_date_str)
@@ -169,21 +169,34 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False):
     if not is_success or not report_data['has_data']:
         send_simple_message(target_chat_id, "📭 មិនមានទិន្នន័យសម្រាប់ Export PDF ទេ។")
         return
+    
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     hlcc_blue, hlcc_grey, light_bg = (52, 157, 216), (80, 80, 80), (245, 250, 255)
     logo_path = 'logo.png'
+
+    # --- ដាក់ Logo ជា Background ព្រឹលៗ (Watermark) ---
+    if os.path.exists(logo_path):
+        # កំណត់កម្រិតភាពច្បាស់ (Alpha) ឱ្យនៅត្រឹម ០.០៨ (៨%)
+        with pdf.local_context(fill_opacity=0.08):
+            # ដាក់នៅកណ្តាលទំព័រ (ទំហំប្រហែល ១៥០មម)
+            pdf.image(logo_path, x=30, y=70, w=150)
+
+    # ផ្នែកក្បាល (Header with Logo)
     if os.path.exists(logo_path):
         pdf.image(logo_path, x=10, y=8, w=35)
         pdf.set_x(50)
     else: pdf.set_x(10)
+
     pdf.set_font("Helvetica", "B", 20); pdf.set_text_color(*hlcc_blue)
     pdf.cell(0, 10, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="L")
+    
     pdf.set_x(pdf.get_x() + 40 if os.path.exists(logo_path) else 10)
     pdf.set_font("Helvetica", "B", 12); pdf.set_text_color(*hlcc_grey)
     title = f"Monthly Sales Dashboard - {report_data['display_date']}" if is_monthly else f"Daily Sales Dashboard - {report_data['display_date']}"
     pdf.cell(0, 7, title, ln=True, align="L")
     pdf.ln(10)
+
     for page in report_data['pages']:
         pdf.set_font("Helvetica", "B", 14); pdf.set_fill_color(*hlcc_blue); pdf.set_text_color(255, 255, 255)
         pdf.cell(0, 10, f"  PAGE: {page['page_name'].upper()}", ln=True, fill=True)
@@ -194,6 +207,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False):
         pdf.cell(col_w, 8, "BOOKING", 1, 0, 'C', fill=True)
         pdf.cell(col_w, 8, "VISIT", 1, 0, 'C', fill=True)
         pdf.cell(col_w, 8, "CLOSE DEAL", 1, 1, 'C', fill=True)
+        
         pdf.set_font("Helvetica", "", 11)
         pdf.cell(col_w, 8, str(page['num_chat']), 1, 0, 'C')
         pdf.cell(col_w, 8, str(page['online_booking']), 1, 0, 'C')
