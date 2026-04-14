@@ -29,7 +29,7 @@ TELEGRAM_TOPIC_ID = os.getenv('TELEGRAM_TOPIC_ID', '')
 SPREADSHEET_ID = os.getenv('SPREADSHEET_ID', '')
 GOOGLE_CREDENTIALS_JSON = os.getenv('GOOGLE_CREDENTIALS_JSON', '')
 
-TARGET_PAGES = ['Main Page', 'Sovanna']
+TARGET_PAGES = ['Main Page', 'Sovanna', 'Esthetic RX', 'Toul Kork', 'Mega Mall', 'Olympia', 'PHBS']
 tz = pytz.timezone('Asia/Phnom_Penh')
 
 report_cache = {}
