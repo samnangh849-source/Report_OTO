@@ -12,7 +12,6 @@ from dateutil import parser
 import pytz
 from fpdf import FPDF
 import tempfile
-import random
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -31,9 +30,6 @@ GOOGLE_CREDENTIALS_JSON = os.getenv('GOOGLE_CREDENTIALS_JSON', '')
 
 TARGET_PAGES = ['Main Page', 'Sovanna', 'Esthetic RX', 'Toul Kork', 'Mega Mall', 'Olympia', 'PHBS']
 tz = pytz.timezone('Asia/Phnom_Penh')
-
-report_cache = {}
-CACHE_VERSION = 5
 
 # ==========================================
 # Telegram APIs
@@ -62,16 +58,22 @@ def delete_message(chat_id, message_id):
     payload = {"chat_id": chat_id, "message_id": message_id}
     telegram_api("deleteMessage", payload)
 
-def send_document(chat_id, file_path, caption):
-    with open(file_path, 'rb') as f:
-        payload = {
-            'files': {'document': (os.path.basename(file_path), f, 'application/pdf')},
-            'data': {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}
-        }
-        return telegram_api("sendDocument", payload, is_multipart=True)
+def send_document(chat_id, file_path, caption, thumb_path=None):
+    f_doc = open(file_path, 'rb')
+    files = {'document': (os.path.basename(file_path), f_doc, 'application/pdf')}
+    f_thumb = None
+    if thumb_path and os.path.exists(thumb_path):
+        f_thumb = open(thumb_path, 'rb')
+        files['thumbnail'] = (os.path.basename(thumb_path), f_thumb, 'image/png')
+        
+    payload = {'files': files, 'data': {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}}
+    try: return telegram_api("sendDocument", payload, is_multipart=True)
+    finally:
+        f_doc.close()
+        if f_thumb: f_thumb.close()
 
 # ==========================================
-# Data Processing
+# 100% Accurate Data Processing
 # ==========================================
 def get_google_sheet():
     if not GOOGLE_CREDENTIALS_JSON: return None
@@ -90,6 +92,10 @@ def clean_currency(value):
         return float(clean_val) if clean_val else 0.0
     except: return 0.0
 
+def is_true(val):
+    v = str(val).strip().lower()
+    return v in ['1', 'true', 'checked', 'x', 'yes']
+
 def fetch_report_data(target_date, is_monthly=False):
     ss = get_google_sheet()
     if not ss: return None, False
@@ -99,19 +105,17 @@ def fetch_report_data(target_date, is_monthly=False):
     has_data = False
     pages_data = []
 
-    try: all_worksheets = {ws.title.strip(): ws for ws in ss.worksheets()}
+    try: all_worksheets = {ws.title.strip().lower(): ws for ws in ss.worksheets()}
     except: all_worksheets = {}
 
     for page_name in TARGET_PAGES:
-        worksheet = all_worksheets.get(page_name.strip())
+        worksheet = all_worksheets.get(page_name.strip().lower())
         if not worksheet: continue
         try: data = worksheet.get_all_values()
         except: continue
         if len(data) <= 4: continue
         
-        target_string = str(data[2][0]) if len(data[2]) > 0 else "0"
-        match = re.search(r'\d+(\.\d+)?', target_string.replace(',', ''))
-        target_amount = float(match.group(0)) if match else 0.0
+        target_amount = clean_currency(data[2][0] if len(data[2]) > 0 else "0")
         
         num_chat = online_booking = visit = close_deal = package_count = 0
         total_sale_today = total_sale_monthly = 0.0
@@ -137,10 +141,10 @@ def fetch_report_data(target_date, is_monthly=False):
             if row_match:
                 num_chat += 1
                 total_sale_today += row_val
-                if len(row) > 9 and str(row[9]).lower() in ['1', 'true']: online_booking += 1
-                if len(row) > 10 and str(row[10]).lower() in ['1', 'true']: visit += 1
-                if len(row) > 11 and str(row[11]).lower() in ['1', 'true']: package_count += 1
-                if len(row) > 12 and str(row[12]).lower() in ['1', 'true']: close_deal += 1
+                if len(row) > 9 and is_true(row[9]): online_booking += 1
+                if len(row) > 10 and is_true(row[10]): visit += 1
+                if len(row) > 11 and is_true(row[11]): package_count += 1
+                if len(row) > 12 and is_true(row[12]): close_deal += 1
         
         if num_chat > 0 or total_sale_monthly > 0:
             has_data = True
@@ -155,12 +159,12 @@ def fetch_report_data(target_date, is_monthly=False):
                 "rate_sale": f"{(total_sale_monthly / target_amount) * 100:.1f}" if target_amount > 0 else "0.0"
             })
             
-    return {"display_date": target_date.strftime("%B %Y") if is_monthly else target_date.strftime("%d/%m/%Y"), 
+    return {"display_date": target_date.strftime("%B %d, %Y") if not is_monthly else target_date.strftime("%B %Y"), 
             "search_key": today_month_search if is_monthly else today_for_search,
             "has_data": has_data, "pages": pages_data}, True
 
 # ==========================================
-# Modern Luxury PDF Design
+# Premium Style PDF Design
 # ==========================================
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -169,8 +173,8 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         report_data, is_success = fetch_report_data(target_date, is_monthly)
         
         keyboard = {"inline_keyboard": [
-            [{"text": "📅 Daily", "callback_data": "ask_specific_date"}, {"text": "📊 Monthly", "callback_data": "ask_monthly_report"}],
-            [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]
+            [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}, {"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
+            [{"text": "💬 Contact Developer", "url": "https://t.me/OUDOM333"}]
         ]}
 
         if not is_success or not report_data['has_data']:
@@ -178,137 +182,174 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             return
         
         pdf = FPDF(orientation='P', unit='mm', format='A4')
+        pdf.set_auto_page_break(auto=True, margin=15)
         pdf.add_page()
         
-        # Style Tokens
-        HLCC_BLUE = (52, 157, 216)
-        HLCC_PINK = (255, 182, 193)
-        TEXT_DARK = (40, 40, 40)
-        TEXT_LIGHT = (120, 120, 120)
-        CARD_BG = (255, 255, 255)
+        # --- Premium Color Palette ---
+        PRIMARY_BLUE = (30, 64, 175)    # Elegant Deep Blue
+        ACCENT_BLUE = (59, 130, 246)    # Soft Blue
+        TEXT_MAIN = (55, 65, 81)        # Dark Gray
+        TEXT_MUTED = (107, 114, 128)    # Light Gray
+        BG_LIGHT = (249, 250, 251)      # Off-white
         
         logo_path = 'logo.png'
         bg_path = 'BG.png'
 
-        # 1. Background Image (BG.png)
+        # 1. Full Page Soft Background (BG.png)
         if os.path.exists(bg_path):
-            with pdf.local_context(fill_opacity=0.04):
+            with pdf.local_context(fill_opacity=0.05): # Very soft opacity
                 pdf.image(bg_path, x=0, y=0, w=210, h=297)
         
-        # 2. Header
+        # 2. Executive Header
         if os.path.exists(logo_path):
-            pdf.image(logo_path, x=85, y=12, w=40)
-            pdf.set_y(55)
-        else: pdf.set_y(25)
+            pdf.image(logo_path, x=85, y=10, w=40)
+            pdf.set_y(50)
+        else: pdf.set_y(20)
 
-        pdf.set_font("Helvetica", "B", 20); pdf.set_text_color(*HLCC_BLUE)
-        pdf.cell(0, 10, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="C")
-        pdf.set_font("Helvetica", "", 12); pdf.set_text_color(*TEXT_LIGHT)
-        title_type = "MONTHLY PERFORMANCE" if is_monthly else "DAILY SALES REPORT"
-        pdf.cell(0, 7, f"{title_type} | {report_data['display_date']}", ln=True, align="C")
-        pdf.ln(10)
+        pdf.set_font("Helvetica", "B", 18); pdf.set_text_color(*PRIMARY_BLUE)
+        pdf.cell(0, 8, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="C")
+        pdf.set_font("Helvetica", "", 11); pdf.set_text_color(*TEXT_MUTED)
+        title_type = "MONTHLY EXECUTIVE SUMMARY" if is_monthly else "DAILY PERFORMANCE REPORT"
+        pdf.cell(0, 6, f"{title_type}  •  {report_data['display_date'].upper()}", ln=True, align="C")
+        
+        # Elegant Divider
+        pdf.set_draw_color(229, 231, 235); pdf.set_line_width(0.5)
+        pdf.line(20, pdf.get_y() + 4, 190, pdf.get_y() + 4); pdf.ln(10)
 
-        # 3. Cards Layout
+        # 3. Luxury Cards Layout
         for page in report_data['pages']:
-            # Start Card
-            pdf.set_fill_color(*CARD_BG); pdf.set_draw_color(230, 230, 230)
+            if pdf.get_y() > 240: pdf.add_page()
             x_start, y_start = 15, pdf.get_y()
-            pdf.rect(x_start, y_start, 180, 58, 'FD') # Card body
             
-            # Card Header (Accent line)
-            pdf.set_fill_color(*HLCC_BLUE)
-            pdf.rect(x_start, y_start, 180, 1.5, 'F')
+            # Draw Card Background (Clean, shadowless modern look)
+            pdf.set_fill_color(255, 255, 255); pdf.set_draw_color(229, 231, 235)
+            pdf.rect(x_start, y_start, 180, 52, 'DF')
             
-            # Branch Name
-            pdf.set_xy(x_start + 5, y_start + 5)
-            pdf.set_font("Helvetica", "B", 14); pdf.set_text_color(*HLCC_BLUE)
-            pdf.cell(0, 8, page['page_name'].upper(), ln=True)
+            # Left Accent Bar
+            pdf.set_fill_color(*PRIMARY_BLUE)
+            pdf.rect(x_start, y_start, 3, 52, 'F')
             
-            # Metrics Grid (4 columns)
-            pdf.set_y(pdf.get_y() + 2)
-            metric_w = 42
+            # Card Title
+            pdf.set_xy(x_start + 8, y_start + 6)
+            pdf.set_font("Helvetica", "B", 12); pdf.set_text_color(*PRIMARY_BLUE)
+            pdf.cell(100, 6, page['page_name'].upper(), ln=False)
+            
+            # Total Revenue Top Right inside card
+            pdf.set_font("Helvetica", "B", 12); pdf.set_text_color(*TEXT_MAIN)
+            rev_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
+            pdf.cell(65, 6, f"${rev_val:,.2f}", align="R", ln=True)
+
+            pdf.set_xy(x_start + 8, pdf.get_y())
+            pdf.set_font("Helvetica", "", 8); pdf.set_text_color(*TEXT_MUTED)
+            rev_label = "Monthly Revenue" if is_monthly else "Today's Revenue"
+            pdf.cell(100, 4, f"Target: ${page['target_amount']:,.2f}", ln=False)
+            pdf.cell(65, 4, rev_label, align="R", ln=True)
+            
+            pdf.ln(3)
+
+            # Minimalist Metrics Row
+            pdf.set_x(x_start + 8)
+            col_w = 40
             metrics = [
-                ("CHATS", page['num_chat']),
-                ("BOOKINGS", page['online_booking']),
-                ("VISITS", page['visit']),
-                ("DEALS", page['close_deal'])
+                ("Total Chats", page['num_chat']),
+                ("Bookings", page['online_booking']),
+                ("Visits", page['visit']),
+                ("Closed Deals", page['close_deal'])
             ]
             
-            pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*TEXT_LIGHT)
-            start_y_metrics = pdf.get_y()
+            pdf.set_font("Helvetica", "", 8); pdf.set_text_color(*TEXT_MUTED)
+            y_met_label = pdf.get_y()
             for i, (label, _) in enumerate(metrics):
-                pdf.set_xy(x_start + 5 + (i * metric_w), start_y_metrics)
-                pdf.cell(metric_w, 5, label, align="L")
+                pdf.set_xy(x_start + 8 + (i * col_w), y_met_label)
+                pdf.cell(col_w, 5, label, align="L")
             
-            pdf.ln(5); pdf.set_font("Helvetica", "B", 13); pdf.set_text_color(*TEXT_DARK)
-            val_y = pdf.get_y()
+            pdf.ln(5); pdf.set_font("Helvetica", "B", 14); pdf.set_text_color(*TEXT_MAIN)
+            y_met_val = pdf.get_y()
             for i, (_, val) in enumerate(metrics):
-                pdf.set_xy(x_start + 5 + (i * metric_w), val_y)
-                pdf.cell(metric_w, 7, str(val), align="L")
+                pdf.set_xy(x_start + 8 + (i * col_w), y_met_val)
+                pdf.cell(col_w, 6, str(val), align="L")
             
-            # Revenue & Progress Bar Section
+            # Sleek Progress Bar
             pdf.set_y(pdf.get_y() + 10)
-            pdf.set_font("Helvetica", "B", 9); pdf.set_text_color(*TEXT_LIGHT)
-            pdf.set_x(x_start + 5)
-            pdf.cell(40, 5, "MONTHLY ACHIEVEMENT", align="L")
+            bar_x, bar_y = x_start + 8, pdf.get_y()
             
-            # Progress Bar Background
-            bar_x, bar_y = x_start + 5, pdf.get_y() + 6
-            pdf.set_fill_color(245, 245, 245); pdf.rect(bar_x, bar_y, 110, 4, 'F')
+            # Background Bar
+            pdf.set_fill_color(243, 244, 246); pdf.rect(bar_x, bar_y, 140, 3, 'F')
             
-            # Progress Bar Foreground
+            # Foreground Bar
             achieved = float(page['rate_sale'])
-            fill_w = (min(achieved, 100) / 100) * 110
-            pdf.set_fill_color(*HLCC_BLUE); pdf.rect(bar_x, bar_y, fill_w, 4, 'F')
+            fill_w = (min(achieved, 100) / 100) * 140
+            pdf.set_fill_color(*ACCENT_BLUE); pdf.rect(bar_x, bar_y, fill_w, 3, 'F')
             
-            # Revenue Text
-            pdf.set_xy(x_start + 120, bar_y - 1)
-            pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*HLCC_BLUE)
-            rev_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
-            pdf.cell(55, 5, f"${rev_val:,.2f} / ${page['target_amount']:,.0f}", align="R", ln=True)
+            # Percentage
+            pdf.set_xy(bar_x + 145, bar_y - 1.5)
+            pdf.set_font("Helvetica", "B", 9); pdf.set_text_color(*PRIMARY_BLUE)
+            pdf.cell(20, 6, f"{page['rate_sale']}%", align="R", ln=True)
             
-            # Conversion Mini Labels
-            pdf.set_font("Helvetica", "", 7); pdf.set_text_color(*TEXT_LIGHT)
-            pdf.set_x(x_start + 5)
-            pdf.cell(0, 5, f"Conversion: Booking {page['rate_booking']}% | Visit {page['rate_visit']}% | Deal {page['rate_close_deal']}% | Achievement {page['rate_sale']}%", ln=True)
-            
-            pdf.ln(12) # Space between cards
+            pdf.ln(8)
 
-        # 4. Summary Chart at Bottom
+        # 4. Premium Modern Chart
         if pdf.get_y() > 200: pdf.add_page()
-        pdf.set_font("Helvetica", "B", 12); pdf.set_text_color(*HLCC_BLUE)
-        pdf.cell(0, 10, "PERFORMANCE OVERVIEW (%)", ln=True, align="C")
+        pdf.set_font("Helvetica", "B", 14); pdf.set_text_color(*PRIMARY_BLUE)
+        pdf.ln(5); pdf.cell(0, 10, "ACHIEVEMENT OVERVIEW", ln=True, align="C")
         
         achieved_pct = [float(p['rate_sale']) for p in report_data['pages']]
         page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
         
-        plt.figure(figsize=(8, 3))
-        plt.rcParams['axes.facecolor'] = 'none'
-        bars = plt.bar(page_names, achieved_pct, color='#349dd8', alpha=0.8, width=0.6)
-        plt.title('Sales Achievement vs Target', fontsize=10, color='#333333')
-        plt.ylim(0, max(max(achieved_pct) + 20, 110))
-        plt.grid(axis='y', linestyle='--', alpha=0.3)
-        for bar in bars:
-            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 2, f'{bar.get_height()}%', ha='center', va='bottom', fontsize=8, fontweight='bold')
+        plt.figure(figsize=(9, 4))
+        ax = plt.gca()
+        # Remove borders for clean look
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('#E5E7EB')
+        ax.spines['bottom'].set_color('#E5E7EB')
         
+        bars = plt.bar(page_names, achieved_pct, color='#3B82F6', alpha=0.85, width=0.55)
+        plt.ylabel('Target Achieved (%)', fontsize=9, color='#6B7280')
+        plt.xticks(fontsize=8, color='#374151', rotation=0)
+        plt.yticks(fontsize=8, color='#6B7280')
+        plt.ylim(0, max(max(achieved_pct) + 20, 110))
+        plt.grid(axis='y', linestyle='-', alpha=0.4, color='#E5E7EB')
+        
+        # Add labels directly on top of bars cleanly
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2, height + 2, f'{height}%', 
+                     ha='center', va='bottom', fontsize=8, fontweight='bold', color='#1E40AF')
+        
+        # Save transparent chart
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-            plt.savefig(tmp.name, format='png', transparent=True, dpi=120); c_p = tmp.name
-        plt.close(); pdf.image(c_p, x=30, y=pdf.get_y(), w=150); os.remove(c_p)
+            plt.savefig(tmp.name, format='png', transparent=True, dpi=200, bbox_inches='tight')
+            chart_path = tmp.name
+        plt.close()
+        
+        pdf.image(chart_path, x=20, y=pdf.get_y(), w=170)
+        os.remove(chart_path)
+        pdf.set_y(pdf.get_y() + 65) # Jump past chart
 
-        # 5. QR Contact & Footer
-        qr = qrcode.QRCode(border=2); qr.add_data("https://t.me/OUDOM333"); qr.make(fit=True)
-        img_qr = qr.make_image(fill_color="black", back_color="white").convert('RGB')
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as t_qr: img_qr.save(t_qr.name); q_p = t_qr.name
-        pdf.set_fill_color(255, 255, 255); pdf.rect(174, 261, 22, 22, 'F'); pdf.image(q_p, x=175, y=262, w=20); os.remove(q_p)
-        pdf.set_y(265); pdf.set_x(120); pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*HLCC_BLUE)
-        pdf.cell(53, 5, "CONTACT DEVELOPER", ln=True, align="R")
-        pdf.set_x(120); pdf.set_font("Helvetica", "", 7); pdf.set_text_color(100); pdf.cell(53, 4, "@OUDOM333", ln=True, align="R")
-        pdf.set_y(-15); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(180)
-        pdf.cell(0, 10, f"System by OTO Messages | HLCC Official Report | Gen: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
+        # 5. Minimalist QR & Footer
+        qr = qrcode.QRCode(version=1, border=1, box_size=10) # Smaller border
+        qr.add_data("https://t.me/OUDOM333"); qr.make(fit=True)
+        img_qr = qr.make_image(fill_color="#1F2937", back_color="white").convert('RGB')
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as t_qr:
+            img_qr.save(t_qr.name); q_p = t_qr.name
+        
+        # Place QR bottom right
+        pdf.set_fill_color(255, 255, 255)
+        pdf.rect(179, 259, 18, 18, 'F')
+        pdf.image(q_p, x=180, y=260, w=16); os.remove(q_p)
+        
+        pdf.set_y(263); pdf.set_x(120); pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*PRIMARY_BLUE)
+        pdf.cell(57, 5, "CONTACT DEVELOPER", ln=True, align="R")
+        pdf.set_x(120); pdf.set_font("Helvetica", "", 7); pdf.set_text_color(*TEXT_MUTED)
+        pdf.cell(57, 4, "@OUDOM333", ln=True, align="R")
+
+        # Footer Centered
+        pdf.set_y(-15); pdf.set_font("Helvetica", "", 8); pdf.set_text_color(156, 163, 175)
+        pdf.cell(0, 10, f"Powered by OTO Messages  |  Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", 0, 0, 'C')
         
         f_n = f"HLCC_Report_{report_data['search_key']}.pdf"; f_p = os.path.join(tempfile.gettempdir(), f_n); pdf.output(f_p)
-        send_document(target_chat_id, f_p, f"💎 <b>HLCC {title_type}</b>\n📅 Period: {report_data['display_date']}")
-        send_simple_message(target_chat_id, "✅ Report generated successfully.", keyboard)
+        send_document(target_chat_id, f_p, f"💎 <b>HLCC {title_type}</b>\n📅 {report_data['display_date']}", thumb_path=logo_path)
         os.remove(f_p)
     finally:
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
@@ -316,7 +357,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
 @app.route('/api/trigger', methods=['POST'])
 def trigger_api():
     data = request.get_json(); req_date = data.get('date'); chat_id = data.get('chat_id')
-    resp = send_simple_message(chat_id, f"⏳ Generating Luxury PDF Dashboard for <b>{req_date}</b> ...")
+    resp = send_simple_message(chat_id, f"⏳ Generating Executive PDF for <b>{req_date}</b> ...")
     l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
     threading.Thread(target=generate_and_send_pdf, args=(req_date, chat_id, False, l_id)).start()
     return jsonify({"status": "processing"})
@@ -329,15 +370,15 @@ def webhook():
     requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
     
     if data == 'ask_monthly_report':
-        months = ["មករា (Jan)", "កុម្ភៈ (Feb)", "មីនា (Mar)", "មេសា (Apr)", "ឧសភា (May)", "មិថុនា (Jun)", "កក្កដា (Jul)", "សីហា (Aug)", "កញ្ញា (Sep)", "តុលា (Oct)", "វិច្ឆិកា (Nov)", "ធ្នូ (Dec)"]
+        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         year = datetime.now(tz).year; rows, curr = [], []
         for i in range(12):
             curr.append({"text": months[i], "callback_data": f"mreport_{year}-{i+1:02d}"})
             if len(curr) == 3 or i == 11: rows.append(curr); curr = []
-        send_simple_message(chat_id, f"📊 Please select **Month** for Dashboard:", {"inline_keyboard": rows})
+        send_simple_message(chat_id, f"📊 Select Month for Executive Report:", {"inline_keyboard": rows})
     elif data.startswith('mreport_'):
         delete_message(chat_id, current_msg_id); sel_month = data.replace('mreport_', '')
-        resp = send_simple_message(chat_id, f"⏳ Creating Monthly PDF for <b>{sel_month}</b> ...")
+        resp = send_simple_message(chat_id, f"⏳ Generating Monthly PDF for <b>{sel_month}</b> ...")
         l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
         threading.Thread(target=generate_and_send_pdf, args=(sel_month, chat_id, True, l_id)).start()
     elif data == 'ask_specific_date' or data == 'back_to_months':
@@ -357,15 +398,10 @@ def webhook():
         send_simple_message(chat_id, f"📅 Select Day for {sel_month}:", {"inline_keyboard": rows})
     elif data.startswith('report_'):
         delete_message(chat_id, current_msg_id); sel_date = data.replace('report_', '')
-        resp = send_simple_message(chat_id, f"⏳ Creating PDF for <b>{sel_date}</b> ...")
+        resp = send_simple_message(chat_id, f"⏳ Generating Daily PDF for <b>{sel_date}</b> ...")
         l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
         threading.Thread(target=generate_and_send_pdf, args=(sel_date, chat_id, False, l_id)).start()
     return jsonify({"status": "ok"})
 
-@app.route('/clear_cache', methods=['GET', 'POST'])
-def clear_cache():
-    global report_cache; report_cache = {}; return jsonify({"status": "success"})
-
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
