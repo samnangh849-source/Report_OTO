@@ -411,7 +411,7 @@ def webhook():
                 [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}, {"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
                 [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]
             ]}
-            send_simple_message(chat_id, "👋 <b>Welcome to HLCC Reporting System!</b>", kb)
+            send_simple_message(chat_id, "👋 <b>Welcome to OTO Messages System!</b>", kb)
             return jsonify({"status": "ok"})
             
     if "callback_query" in update:
