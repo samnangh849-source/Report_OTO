@@ -379,7 +379,16 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         f_n = f"HLCC Page Report - {report_data['search_key']}.pdf"
         f_p = os.path.join(tempfile.gettempdir(), f_n)
         pdf.output(f_p)
+        
+        # ផ្ញើ Keyboard ដែលបំបែកជួររួចរាល់
+        keyboard = {"inline_keyboard": [
+            [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}],
+            [{"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
+            [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]
+        ]}
+        
         send_document(target_chat_id, f_p, f"💎 <b>HLCC Executive Dashboard</b>\n📅 {report_data['display_date']}", thumb_path=logo_path)
+        send_simple_message(target_chat_id, "✅ Report generated successfully.", keyboard)
         os.remove(f_p)
     finally:
         if loading_msg_id: 
@@ -407,11 +416,13 @@ def webhook():
         chat_id = msg["chat"]["id"]
         
         if text.startswith("/start"):
+            # Keyboard បំបែកជួរ
             kb = {"inline_keyboard": [
-                [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}, {"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
+                [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}],
+                [{"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
                 [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]
             ]}
-            send_simple_message(chat_id, "👋 <b>Welcome to OTO Messages System!</b>", kb)
+            send_simple_message(chat_id, "👋 <b>Welcome to HLCC Reporting System!</b>", kb)
             return jsonify({"status": "ok"})
             
     if "callback_query" in update:
