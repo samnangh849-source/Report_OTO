@@ -88,7 +88,6 @@ def get_google_sheet():
 def clean_currency(value):
     if not value: return 0.0
     try:
-        # សម្អាតសញ្ញា $ , និងអក្សរផ្សេងៗ ទុកតែលេខ និងចំណុចទសភាគ
         clean_val = str(value).replace('$', '').replace(',', '').strip()
         match = re.search(r'[-+]?\d*\.?\d+', clean_val)
         return float(match.group(0)) if match else 0.0
@@ -114,7 +113,9 @@ def fetch_report_data(target_date, is_monthly=False):
     today_month_search = target_date.strftime("%Y-%m")
     today_for_search = target_date.strftime("%Y-%m-%d")
     target_y, target_m, target_d = target_date.year, target_date.month, target_date.day
-    has_data = False
+    
+    # ធានាថាបានជួប Page ទោះបីមិនមានទិន្នន័យ
+    has_data_flag = False
     pages_data = []
 
     try: all_worksheets = {ws.title.strip().lower(): ws for ws in ss.worksheets()}
@@ -122,62 +123,64 @@ def fetch_report_data(target_date, is_monthly=False):
 
     for page_name in TARGET_PAGES:
         worksheet = all_worksheets.get(page_name.strip().lower())
-        if not worksheet: continue
-        try: data = worksheet.get_all_values()
-        except: continue
-        if len(data) <= 4: continue
         
-        target_str = str(data[2][0]) if len(data[2]) > 0 else "0"
-        target_amount = clean_currency(target_str)
-        
+        # តម្លៃដើមសម្រាប់ Page ដែលគ្មាន Sheet ឬគ្មានទិន្នន័យ
         num_chat = online_booking = visit = close_deal = package_count = 0
-        total_sale_today = total_sale_monthly = 0.0
+        total_sale_today = total_sale_monthly = target_amount = 0.0
         
-        for i in range(4, len(data)):
-            row = data[i]
-            if len(row) < 2 or not row[1]: continue
-            str_date = str(row[1]).strip()
-            is_match_day = is_match_month = False
-            
-            p_date = parse_date_flexible(str_date)
-            if p_date:
-                if p_date.year == target_y and p_date.month == target_m:
-                    is_match_month = True
-                    if p_date.day == target_d: is_match_day = True
-            else:
-                #Fallback String Match
-                if today_month_search in str_date: is_match_month = True
-                if today_for_search in str_date: is_match_day = True
+        if worksheet:
+            try:
+                data = worksheet.get_all_values()
+                if len(data) > 4:
+                    # ទាញ Target
+                    target_str = str(data[2][0]) if len(data[2]) > 0 else "0"
+                    target_amount = clean_currency(target_str)
+                    
+                    for i in range(4, len(data)):
+                        row = data[i]
+                        if len(row) < 2 or not row[1]: continue
+                        str_date = str(row[1]).strip()
+                        is_match_day = is_match_month = False
+                        
+                        p_date = parse_date_flexible(str_date)
+                        if p_date:
+                            if p_date.year == target_y and p_date.month == target_m:
+                                is_match_month = True
+                                if p_date.day == target_d: is_match_day = True
+                        else:
+                            if today_month_search in str_date: is_match_month = True
+                            if today_for_search in str_date: is_match_day = True
 
-            row_val = clean_currency(row[7]) if len(row) > 7 else 0.0
-            if is_match_month: total_sale_monthly += row_val
-            
-            row_match = is_match_month if is_monthly else is_match_day
-            if row_match:
-                num_chat += 1
-                total_sale_today += row_val
-                if len(row) > 9 and is_true(row[9]): online_booking += 1
-                if len(row) > 10 and is_true(row[10]): visit += 1
-                if len(row) > 11 and is_true(row[11]): package_count += 1
-                if len(row) > 12 and is_true(row[12]): close_deal += 1
-        
-        if num_chat > 0 or total_sale_monthly > 0:
-            has_data = True
-            pages_data.append({
-                "page_name": page_name, "num_chat": num_chat, "online_booking": online_booking, 
-                "visit": visit, "close_deal": close_deal, "package_count": package_count,
-                "total_sale_today": total_sale_today, "total_sale_monthly": total_sale_monthly,
-                "target_amount": target_amount, 
-                "rate_booking": f"{(online_booking / num_chat) * 100:.2f}" if num_chat > 0 else "0.00",
-                "rate_visit": f"{(visit / num_chat) * 100:.2f}" if num_chat > 0 else "0.00",
-                "rate_close_deal": f"{(close_deal / num_chat) * 100:.2f}" if num_chat > 0 else "0.00",
-                "rate_package": f"{(package_count / close_deal) * 100:.2f}" if close_deal > 0 else "0.00",
-                "rate_sale": f"{(total_sale_monthly / target_amount) * 100:.2f}" if target_amount > 0 else "0.00"
-            })
+                        row_val = clean_currency(row[7]) if len(row) > 7 else 0.0
+                        if is_match_month: total_sale_monthly += row_val
+                        
+                        row_match = is_match_month if is_monthly else is_match_day
+                        if row_match:
+                            has_data_flag = True
+                            num_chat += 1
+                            total_sale_today += row_val
+                            if len(row) > 9 and is_true(row[9]): online_booking += 1
+                            if len(row) > 10 and is_true(row[10]): visit += 1
+                            if len(row) > 11 and is_true(row[11]): package_count += 1
+                            if len(row) > 12 and is_true(row[12]): close_deal += 1
+            except: pass
+
+        # បញ្ចូលទិន្នន័យជានិច្ច (ទោះបីជាសូន្យ)
+        pages_data.append({
+            "page_name": page_name, "num_chat": num_chat, "online_booking": online_booking, 
+            "visit": visit, "close_deal": close_deal, "package_count": package_count,
+            "total_sale_today": total_sale_today, "total_sale_monthly": total_sale_monthly,
+            "target_amount": target_amount, 
+            "rate_booking": f"{(online_booking / num_chat) * 100:.2f}" if num_chat > 0 else "0.00",
+            "rate_visit": f"{(visit / num_chat) * 100:.2f}" if num_chat > 0 else "0.00",
+            "rate_close_deal": f"{(close_deal / num_chat) * 100:.2f}" if num_chat > 0 else "0.00",
+            "rate_package": f"{(package_count / close_deal) * 100:.2f}" if close_deal > 0 else "0.00",
+            "rate_sale": f"{(total_sale_monthly / target_amount) * 100:.2f}" if target_amount > 0 else "0.00"
+        })
             
     return {"display_date": target_date.strftime("%B %d, %Y") if not is_monthly else target_date.strftime("%B %Y"), 
             "search_key": today_month_search if is_monthly else today_for_search,
-            "has_data": has_data, "pages": pages_data}, True
+            "has_data": True, "pages": pages_data}, True
 
 # ==========================================
 # Premium Style PDF Design
@@ -193,7 +196,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             [{"text": "💬 Contact Developer", "url": "https://t.me/OUDOM333"}]
         ]}
 
-        if not is_success or not report_data['has_data']:
+        if not is_success or not report_data['pages']:
             send_simple_message(target_chat_id, f"📭 No data available for {report_data['display_date']}.", keyboard)
             return
         
@@ -209,13 +212,16 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         logo_path = 'logo.png'
         bg_path = 'BG.png'
 
+        # 1. Background Image
         if os.path.exists(bg_path):
             with pdf.local_context(fill_opacity=0.10): 
                 pdf.image(bg_path, x=0, y=0, w=210, h=297)
         
+        # 2. Executive Header (Larger Logo)
         if os.path.exists(logo_path):
-            pdf.image(logo_path, x=85, y=10, w=40)
-            pdf.set_y(50)
+            logo_w = 52 # បង្កើនទំហំពី 40 ដល់ 52
+            pdf.image(logo_path, x=(210 - logo_w)/2, y=10, w=logo_w)
+            pdf.set_y(62) # រំកិលអក្សរចុះបន្តិចព្រោះ Logo ធំជាងមុន
         else: pdf.set_y(20)
 
         pdf.set_font("Helvetica", "B", 18); pdf.set_text_color(*PRIMARY_BLUE)
@@ -227,12 +233,11 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.set_draw_color(229, 231, 235); pdf.set_line_width(0.5)
         pdf.line(20, pdf.get_y() + 4, 190, pdf.get_y() + 4); pdf.ln(8)
 
-        # 3. Luxury Cards Layout (Fixed Visibility)
+        # 3. Luxury Cards Layout
         for page in report_data['pages']:
             if pdf.get_y() > 220: pdf.add_page()
             x_start, y_start = 15, pdf.get_y()
             
-            # Draw Card Background (Taller)
             pdf.set_fill_color(255, 255, 255); pdf.set_draw_color(229, 231, 235)
             pdf.rect(x_start, y_start, 180, 58, 'DF')
             pdf.set_fill_color(*PRIMARY_BLUE); pdf.rect(x_start, y_start, 3, 58, 'F')
@@ -263,7 +268,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
                 pdf.set_xy(x_start + 8 + (i * col_w), y_m_val)
                 pdf.cell(col_w, 5, str(val), align="L")
             
-            # Clearer Target Status Section
             pdf.set_y(y_m_val + 8)
             pdf.set_x(x_start + 8)
             pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*PRIMARY_BLUE)
@@ -292,7 +296,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             if fill_w > 0: pdf.rect(bar_x, bar_y, fill_w, 2.5, 'F')
             pdf.ln(12)
 
-        # 4. Improved Chart Design
+        # 4. Achievement Chart
         if pdf.get_y() > 190: pdf.add_page()
         pdf.set_font("Helvetica", "B", 14); pdf.set_text_color(*PRIMARY_BLUE)
         pdf.ln(5); pdf.cell(0, 10, "ACHIEVEMENT OVERVIEW", ln=True, align="C")
@@ -309,11 +313,9 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         bars = plt.bar(page_names, achieved_pct, color='#3B82F6', alpha=0.85, width=0.5)
         plt.axhline(y=100, color='#10B981', linestyle='--', alpha=0.6, linewidth=1.2)
         plt.text(-0.45, 102, 'Goal 100%', color='#10B981', fontsize=7, fontweight='bold')
-
         plt.ylabel('Target Achieved (%)', fontsize=9, color='#6B7280')
         plt.ylim(0, max(max(achieved_pct) + 25, 120)) 
         plt.grid(axis='y', linestyle='-', alpha=0.3, color='#E5E7EB')
-        
         for bar, rate_str in zip(bars, achieved_str):
             h = bar.get_height()
             plt.text(bar.get_x() + bar.get_width()/2, h + 3, f'{rate_str}%', ha='center', va='bottom', fontsize=8, fontweight='bold', color='#1E40AF')
@@ -330,7 +332,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         img_qr = qr.make_image(fill_color="#1F2937", back_color="white").convert('RGB')
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as t_qr:
             img_qr.save(t_qr.name); q_p = t_qr.name
-        
         qr_y, qr_w = 255, 18
         qr_x = (210 - qr_w) / 2 
         pdf.set_fill_color(255, 255, 255); pdf.rect(qr_x - 1, qr_y - 1, qr_w + 2, qr_w + 2, 'F')
