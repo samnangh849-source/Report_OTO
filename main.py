@@ -80,7 +80,7 @@ def fetch_report_data(target_date, is_monthly=False):
     ss = get_google_sheet()
     if not ss: return None, False
     today_month_search, today_for_search = target_date.strftime("%Y-%m"), target_date.strftime("%Y-%m-%d")
-    target_y, target_m = target_date.year, target_date.month
+    target_y, target_m, target_d = target_date.year, target_date.month, target_date.day
     has_data = False
     pages_data = []
 
@@ -90,48 +90,71 @@ def fetch_report_data(target_date, is_monthly=False):
             data = worksheet.get_all_values()
         except: continue
         if len(data) <= 4: continue
+        
         target_string = str(data[2][0]) if len(data[2]) > 0 else "0"
         match = re.search(r'\d+(\.\d+)?', target_string)
         target_amount = float(match.group(0)) if match else 0.0
+        
         num_chat = online_booking = visit = close_deal = package_count = 0
-        total_sale_amount = 0.0
+        total_sale_today = 0.0
+        total_sale_monthly = 0.0
+        
         for i in range(4, len(data)):
             row = data[i]
             if len(row) < 2 or not row[1]: continue
             str_date = str(row[1]).strip()
-            is_match = False
+            
+            is_match_day = False
+            is_match_month = False
+            
             try:
                 p_date = parser.parse(str_date)
-                if is_monthly:
-                    if p_date.year == target_y and p_date.month == target_m: is_match = True
-                else:
-                    if p_date.year == target_y and p_date.month == target_m and p_date.day == target_date.day: is_match = True
+                if p_date.year == target_y and p_date.month == target_m:
+                    is_match_month = True
+                    if not is_monthly and p_date.day == target_d:
+                        is_match_day = True
             except:
-                if is_monthly and str_date.startswith(today_month_search): is_match = True
-                elif not is_monthly and str_date == today_for_search: is_match = True
-            if is_match:
+                if str_date.startswith(today_month_search): is_match_month = True
+                if not is_monthly and str_date == today_for_search: is_match_day = True
+
+            if is_match_month:
+                try: total_sale_monthly += float(row[7] or 0)
+                except: pass
+            
+            if is_match_day:
                 num_chat += 1
-                if len(row) > 7:
-                    try: total_sale_amount += float(row[7] or 0)
-                    except: pass
+                try: total_sale_today += float(row[7] or 0)
+                except: pass
                 if len(row) > 9 and str(row[9]) in ['1', 'TRUE', 'true']: online_booking += 1
                 if len(row) > 10 and str(row[10]) in ['1', 'TRUE', 'true']: visit += 1
                 if len(row) > 11 and str(row[11]) in ['1', 'TRUE', 'true']: package_count += 1
                 if len(row) > 12 and str(row[12]) in ['1', 'TRUE', 'true']: close_deal += 1
-        if num_chat > 0 or total_sale_amount > 0:
+        
+        if num_chat > 0 or total_sale_monthly > 0:
             has_data = True
             rate_booking = f"{(online_booking / num_chat) * 100:.2f}" if num_chat > 0 else "0.00"
             rate_visit = f"{(visit / num_chat) * 100:.2f}" if num_chat > 0 else "0.00"
             rate_close_deal = f"{(close_deal / num_chat) * 100:.2f}" if num_chat > 0 else "0.00"
             rate_package = f"{(package_count / close_deal) * 100:.2f}" if close_deal > 0 else "0.00"
-            rate_sale = f"{(total_sale_amount / target_amount) * 100:.2f}" if target_amount > 0 else "0.00"
+            rate_sale = f"{(total_sale_monthly / target_amount) * 100:.2f}" if target_amount > 0 else "0.00"
+            
             pages_data.append({
-                "page_name": page_name, "num_chat": num_chat, "online_booking": online_booking, 
-                "visit": visit, "close_deal": close_deal, "package_count": package_count,
-                "total_sale_amount": total_sale_amount, "target_amount": target_amount,
-                "rate_booking": rate_booking, "rate_visit": rate_visit, 
-                "rate_close_deal": rate_close_deal, "rate_package": rate_package, "rate_sale": rate_sale
+                "page_name": page_name, 
+                "num_chat": num_chat, 
+                "online_booking": online_booking, 
+                "visit": visit, 
+                "close_deal": close_deal, 
+                "package_count": package_count,
+                "total_sale_today": total_sale_today,
+                "total_sale_monthly": total_sale_monthly,
+                "target_amount": target_amount,
+                "rate_booking": rate_booking, 
+                "rate_visit": rate_visit, 
+                "rate_close_deal": rate_close_deal, 
+                "rate_package": rate_package, 
+                "rate_sale": rate_sale
             })
+            
     return {"display_date": target_date.strftime("%B %Y") if is_monthly else target_date.strftime("%d/%m/%Y"), 
             "search_key": today_month_search if is_monthly else today_for_search,
             "has_data": has_data, "pages": pages_data}, True
@@ -184,7 +207,8 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False):
         pdf.cell(63.3, 8, "TARGET REVENUE", 1, 1, 'C', fill=True)
         pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*hlcc_blue)
         pdf.cell(63.3, 8, str(page['package_count']), 1, 0, 'C')
-        pdf.cell(63.3, 8, f"${page['total_sale_amount']:.2f}", 1, 0, 'C')
+        revenue_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
+        pdf.cell(63.3, 8, f"${revenue_val:.2f}", 1, 0, 'C')
         pdf.cell(63.3, 8, f"${page['target_amount']:.2f}", 1, 1, 'C')
         pdf.ln(5)
         pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*hlcc_grey)
@@ -213,7 +237,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False):
     if os.path.exists(file_path): os.remove(file_path)
 
 # ==========================================
-# Generate Text Report
+# Generate Text Report (Optimized HLCC UI)
 # ==========================================
 def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=False):
     global report_cache
@@ -223,7 +247,6 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
     today_for_display, search_key = report_data['display_date'], report_data['search_key']
     cache_key = f"M_REPORT_v{CACHE_VERSION}_{search_key}" if is_monthly else f"D_REPORT_v{CACHE_VERSION}_{search_key}"
     
-    # កែសម្រួល៖ រៀបចំប៊ូតុងឲ្យនៅម្នាក់មួយជួរវិញ ដើម្បីការពារដាច់អក្សរ
     keyboard = {"inline_keyboard": [
         [{"text": f"📥 Download {'Monthly' if is_monthly else 'Daily'} PDF", "callback_data": f"{'mpdf_' if is_monthly else 'pdf_'}{search_key}"}],
         [{"text": "📅 ឆែកតាមថ្ងៃ (Daily Report)", "callback_data": "ask_specific_date"}],
@@ -233,29 +256,41 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
     if cache_key in report_cache:
         cached_msg = report_cache[cache_key]
         if cached_msg == "EMPTY":
-            send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ {today_for_display} ទេ។")
+            send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ {today_for_display} ទេ។", keyboard)
             return
         send_simple_message(target_chat_id, cached_msg, keyboard)
         return
     if not is_success or not report_data['has_data']:
         report_cache[cache_key] = "EMPTY"
-        send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ {today_for_display} ទេ។")
+        send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ {today_for_display} ទេ។", keyboard)
         return
-    label = "Monthly Report Summary" if is_monthly else "Daily Sale Report"
-    message = f"Dear Management\n💻 HLCC {label}\n🗓️ Period: <b>{today_for_display}</b>\n\n"
+    
+    report_type_label = "Monthly" if is_monthly else "Daily"
+    message = "Dear Management\n"
+    message += f"📊 <b>HLCC – {report_type_label} Performance Report</b>\n\n"
+    
     for page in report_data['pages']:
-        message += f"🌐 Page: <b>{page['page_name']}</b>\n"
-        message += f"» Total Chat: <b>{page['num_chat']}</b>\n"
-        message += f"» Bookings: <b>{page['online_booking']}</b>\n"
-        message += f"» Visit: <b>{page['visit']}</b>\n"
-        message += f"» Close Deal: <b>{page['close_deal']}</b>\n"
-        message += f"» Total Sale: <b>${page['total_sale_amount']:.2f}</b>\n"
-        message += f"» Target Sale: <b>${page['target_amount']:.2f}</b>\n"
-        message += f"» Achieve: <b>{page['rate_sale']}%</b>\n\n"
-        message += "♻️ Conversion Rates\n"
-        message += f"» Booking: <b>{page['rate_booking']}%</b> | Visit: <b>{page['rate_visit']}%</b>\n"
-        message += f"» Deal: <b>{page['rate_close_deal']}%</b> | Pkg: <b>{page['rate_package']}%</b>\n"
-        message += "========================\n\n"
+        message += f"📅 {today_for_display} | <b>{page['page_name']}</b>\n"
+        
+        message += "📈 <b>Activity Summary</b>\n"
+        message += f"💬 Chats: {page['num_chat']} | 📅 Bookings: {page['online_booking']} | 📍 Visits: {page['visit']} | ✅ Closed deals: {page['close_deal']}\n"
+        
+        message += "•••••••\n"
+        
+        sale_label = "Monthly" if is_monthly else "Today’s"
+        sale_amount = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
+        message += f"💰 {sale_label} sales: <b>${sale_amount:.2f}</b>\n\n"
+        
+        message += "🔄 <b>Conversion</b>\n"
+        message += f"📅 Booking: {page['rate_booking']}% | 📍 Visit: {page['rate_visit']}% | ✅ Deal: {page['rate_close_deal']}% | 📦 Pkg: {page['rate_package']}%\n\n"
+        
+        message += "🎯 <b>Monthly Target</b>\n"
+        message += f"🏆 Goal: ${page['target_amount']:.2f}\n"
+        message += f"💵 Actual: ${page['total_sale_monthly']:.2f}\n"
+        message += f"📉 Achieved: <b>{page['rate_sale']}%</b>\n"
+        
+        message += "====================\n\n"
+    
     message += "Thank you 😊"
     report_cache[cache_key] = message
     send_simple_message(target_chat_id, message, keyboard)
