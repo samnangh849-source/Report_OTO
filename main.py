@@ -32,18 +32,18 @@ TARGET_PAGES = ['Main Page', 'Sovanna', 'Esthetic RX', 'Toul Kork', 'Mega Mall',
 tz = pytz.timezone('Asia/Phnom_Penh')
 
 # ==========================================
-# Telegram APIs
+# Telegram APIs (With Increased Timeout)
 # ==========================================
-def telegram_api(method, payload, is_multipart=False):
+def telegram_api(method, payload, is_multipart=False, timeout=60):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
     if TELEGRAM_TOPIC_ID:
         if is_multipart: payload['data']['message_thread_id'] = TELEGRAM_TOPIC_ID
         else: payload['message_thread_id'] = TELEGRAM_TOPIC_ID
     try:
         if is_multipart: 
-            return requests.post(url, files=payload['files'], data=payload['data'], timeout=30)
+            return requests.post(url, files=payload['files'], data=payload['data'], timeout=timeout)
         else: 
-            return requests.post(url, json=payload, timeout=10)
+            return requests.post(url, json=payload, timeout=timeout)
     except Exception as e:
         print(f"Telegram API Error ({method}):", e)
         return None
@@ -67,13 +67,13 @@ def send_document(chat_id, file_path, caption, thumb_path=None):
         files['thumbnail'] = (os.path.basename(thumb_path), f_thumb, 'image/png')
         
     payload = {'files': files, 'data': {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}}
-    try: return telegram_api("sendDocument", payload, is_multipart=True)
+    try: return telegram_api("sendDocument", payload, is_multipart=True, timeout=120)
     finally:
         f_doc.close()
         if f_thumb: f_thumb.close()
 
 # ==========================================
-# 100% Accurate Data Processing
+# Robust Data Processing
 # ==========================================
 def get_google_sheet():
     if not GOOGLE_CREDENTIALS_JSON: return None
@@ -88,12 +88,21 @@ def get_google_sheet():
 def clean_currency(value):
     if not value: return 0.0
     try:
-        # សម្អាតអក្សរចម្រុះចេញ ទុកតែលេខ និងក្បៀស/ចុច
+        # សម្អាតសញ្ញា $ , និងអក្សរផ្សេងៗ ទុកតែលេខ និងចំណុចទសភាគ
         clean_val = str(value).replace('$', '').replace(',', '').strip()
-        # ប្រើ Regex ដើម្បីចាប់យកតែលេខ (ករណីមានអក្សរផ្សេងៗអមជាមួយ)
         match = re.search(r'[-+]?\d*\.?\d+', clean_val)
         return float(match.group(0)) if match else 0.0
     except: return 0.0
+
+def parse_date_flexible(date_str):
+    if not date_str: return None
+    date_str = str(date_str).strip()
+    try: return parser.parse(date_str)
+    except:
+        for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"]:
+            try: return datetime.strptime(date_str, fmt)
+            except: continue
+    return None
 
 def is_true(val):
     v = str(val).strip().lower()
@@ -118,7 +127,6 @@ def fetch_report_data(target_date, is_monthly=False):
         except: continue
         if len(data) <= 4: continue
         
-        # FIXED: បង្កើនសមត្ថភាពទាញ Target Amount ពីអត្ថបទចម្រុះ (ឧ. "TARGET = 3000$/month")
         target_str = str(data[2][0]) if len(data[2]) > 0 else "0"
         target_amount = clean_currency(target_str)
         
@@ -130,14 +138,16 @@ def fetch_report_data(target_date, is_monthly=False):
             if len(row) < 2 or not row[1]: continue
             str_date = str(row[1]).strip()
             is_match_day = is_match_month = False
-            try:
-                p_date = parser.parse(str_date, fuzzy=False)
+            
+            p_date = parse_date_flexible(str_date)
+            if p_date:
                 if p_date.year == target_y and p_date.month == target_m:
                     is_match_month = True
                     if p_date.day == target_d: is_match_day = True
-            except:
-                if str_date.startswith(today_month_search): is_match_month = True
-                if str_date == today_for_search: is_match_day = True
+            else:
+                #Fallback String Match
+                if today_month_search in str_date: is_match_month = True
+                if today_for_search in str_date: is_match_day = True
 
             row_val = clean_currency(row[7]) if len(row) > 7 else 0.0
             if is_match_month: total_sale_monthly += row_val
@@ -217,14 +227,17 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.set_draw_color(229, 231, 235); pdf.set_line_width(0.5)
         pdf.line(20, pdf.get_y() + 4, 190, pdf.get_y() + 4); pdf.ln(8)
 
+        # 3. Luxury Cards Layout (Fixed Visibility)
         for page in report_data['pages']:
-            if pdf.get_y() > 230: pdf.add_page()
+            if pdf.get_y() > 220: pdf.add_page()
             x_start, y_start = 15, pdf.get_y()
-            pdf.set_fill_color(255, 255, 255); pdf.set_draw_color(229, 231, 235)
-            pdf.rect(x_start, y_start, 180, 54, 'DF')
-            pdf.set_fill_color(*PRIMARY_BLUE); pdf.rect(x_start, y_start, 3, 54, 'F')
             
-            pdf.set_xy(x_start + 8, y_start + 5)
+            # Draw Card Background (Taller)
+            pdf.set_fill_color(255, 255, 255); pdf.set_draw_color(229, 231, 235)
+            pdf.rect(x_start, y_start, 180, 58, 'DF')
+            pdf.set_fill_color(*PRIMARY_BLUE); pdf.rect(x_start, y_start, 3, 58, 'F')
+            
+            pdf.set_xy(x_start + 8, y_start + 6)
             pdf.set_font("Helvetica", "B", 12); pdf.set_text_color(*PRIMARY_BLUE)
             pdf.cell(90, 6, page['page_name'].upper(), ln=False)
             
@@ -233,15 +246,11 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             rev_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
             pdf.cell(80, 6, f"{rev_label}: ${rev_val:,.2f}", align="R", ln=True)
 
-            pdf.set_y(pdf.get_y() + 2)
+            pdf.set_y(pdf.get_y() + 3)
             pdf.set_x(x_start + 8)
             col_w = 42
-            metrics = [
-                ("Total Chats", page['num_chat']),
-                ("Bookings", page['online_booking']),
-                ("Visits", page['visit']),
-                ("Closed Deals", page['close_deal'])
-            ]
+            metrics = [("Total Chats", page['num_chat']), ("Bookings", page['online_booking']), ("Visits", page['visit']), ("Closed Deals", page['close_deal'])]
+            
             pdf.set_font("Helvetica", "", 8); pdf.set_text_color(*TEXT_MUTED)
             y_m_lbl = pdf.get_y()
             for i, (label, _) in enumerate(metrics):
@@ -254,8 +263,9 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
                 pdf.set_xy(x_start + 8 + (i * col_w), y_m_val)
                 pdf.cell(col_w, 5, str(val), align="L")
             
-            y_conv_title = y_m_val + 6
-            pdf.set_xy(x_start + 8, y_conv_title)
+            # Clearer Target Status Section
+            pdf.set_y(y_m_val + 8)
+            pdf.set_x(x_start + 8)
             pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*PRIMARY_BLUE)
             pdf.cell(85, 5, "CONVERSION RATES", ln=False)
             pdf.cell(85, 5, "TARGET STATUS (MONTH)", ln=True)
@@ -272,17 +282,17 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.set_xy(x_start + 8, pdf.get_y())
             pdf.cell(85, 5, "", ln=False)
             pdf.set_font("Helvetica", "B", 8)
-            pdf.cell(30, 5, f"Achieved: {page['rate_sale']}%", ln=False)
+            pdf.cell(28, 5, f"Achieved: {page['rate_sale']}%", ln=False)
             
-            bar_x, bar_y = pdf.get_x(), pdf.get_y() + 1.5
+            bar_x, bar_y = pdf.get_x() + 2, pdf.get_y() + 1.2
             pdf.set_fill_color(243, 244, 246); pdf.rect(bar_x, bar_y, 45, 2.5, 'F')
             achieved = float(page['rate_sale'])
             fill_w = (min(achieved, 100) / 100) * 45
             pdf.set_fill_color(*ACCENT_BLUE)
             if fill_w > 0: pdf.rect(bar_x, bar_y, fill_w, 2.5, 'F')
-            pdf.ln(10)
+            pdf.ln(12)
 
-        # 4. Premium Modern Chart (UPDATED with Goal Line and 2 Decimals)
+        # 4. Improved Chart Design
         if pdf.get_y() > 190: pdf.add_page()
         pdf.set_font("Helvetica", "B", 14); pdf.set_text_color(*PRIMARY_BLUE)
         pdf.ln(5); pdf.cell(0, 10, "ACHIEVEMENT OVERVIEW", ln=True, align="C")
@@ -291,27 +301,22 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         achieved_str = [p['rate_sale'] for p in report_data['pages']]
         page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
         
-        plt.figure(figsize=(9, 4))
+        plt.figure(figsize=(9, 4.5))
         ax = plt.gca()
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_color('#E5E7EB')
-        ax.spines['bottom'].set_color('#E5E7EB')
+        ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('#E5E7EB'); ax.spines['bottom'].set_color('#E5E7EB')
         
-        bars = plt.bar(page_names, achieved_pct, color='#3B82F6', alpha=0.85, width=0.55)
-        
-        # បន្ថែម Goal Line 100%
-        plt.axhline(y=100, color='#10B981', linestyle='--', alpha=0.6, linewidth=1.5)
-        plt.text(-0.4, 102, 'Goal (100%)', color='#10B981', fontsize=7, fontweight='bold')
+        bars = plt.bar(page_names, achieved_pct, color='#3B82F6', alpha=0.85, width=0.5)
+        plt.axhline(y=100, color='#10B981', linestyle='--', alpha=0.6, linewidth=1.2)
+        plt.text(-0.45, 102, 'Goal 100%', color='#10B981', fontsize=7, fontweight='bold')
 
         plt.ylabel('Target Achieved (%)', fontsize=9, color='#6B7280')
-        plt.ylim(0, max(max(achieved_pct) + 20, 115)) 
-        plt.grid(axis='y', linestyle='-', alpha=0.4, color='#E5E7EB')
+        plt.ylim(0, max(max(achieved_pct) + 25, 120)) 
+        plt.grid(axis='y', linestyle='-', alpha=0.3, color='#E5E7EB')
         
         for bar, rate_str in zip(bars, achieved_str):
-            height = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2, height + 2, f'{rate_str}%', 
-                     ha='center', va='bottom', fontsize=8, fontweight='bold', color='#1E40AF')
+            h = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2, h + 3, f'{rate_str}%', ha='center', va='bottom', fontsize=8, fontweight='bold', color='#1E40AF')
         
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
             plt.savefig(tmp.name, format='png', transparent=True, dpi=200, bbox_inches='tight')
@@ -326,8 +331,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as t_qr:
             img_qr.save(t_qr.name); q_p = t_qr.name
         
-        qr_y = 255 
-        qr_w = 18
+        qr_y, qr_w = 255, 18
         qr_x = (210 - qr_w) / 2 
         pdf.set_fill_color(255, 255, 255); pdf.rect(qr_x - 1, qr_y - 1, qr_w + 2, qr_w + 2, 'F')
         pdf.image(q_p, x=qr_x, y=qr_y, w=qr_w); os.remove(q_p)
@@ -335,11 +339,10 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.set_y(qr_y + qr_w + 1)
         pdf.set_font("Helvetica", "B", 7); pdf.set_text_color(*PRIMARY_BLUE)
         pdf.cell(0, 4, "SCAN TO CONTACT DEVELOPER: @OUDOM333", ln=True, align="C")
-
         pdf.set_y(-12); pdf.set_font("Helvetica", "", 8); pdf.set_text_color(156, 163, 175)
         pdf.cell(0, 10, f"Powered by OTO Messages  |  Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", 0, 0, 'C')
         
-        f_n = f"HLCC_Report_{report_data['search_key']}.pdf"; f_p = os.path.join(tempfile.gettempdir(), f_n); pdf.output(f_p)
+        f_n = f"HLCC_Premium_{report_data['search_key']}.pdf"; f_p = os.path.join(tempfile.gettempdir(), f_n); pdf.output(f_p)
         send_document(target_chat_id, f_p, f"💎 <b>HLCC {title_type}</b>\n📅 {report_data['display_date']}", thumb_path=logo_path)
         os.remove(f_p)
     finally:
@@ -361,7 +364,7 @@ def webhook():
         msg = update["message"]; text = msg.get("text", ""); chat_id = msg["chat"]["id"]
         if text.startswith("/start"):
             keyboard = {"inline_keyboard": [[{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}, {"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],[{"text": "💬 Contact Developer", "url": "https://t.me/OUDOM333"}]]}
-            send_simple_message(chat_id, "👋 <b>សូមស្វាគមន៍មកកាន់ HLCC Reporting System!</b>\n\nសូមជ្រើសរើសប្រភេទរបាយការណ៍ខាងក្រោម៖", keyboard)
+            send_simple_message(chat_id, "👋 <b>Welcome to HLCC Reporting System!</b>", keyboard)
             return jsonify({"status": "ok"})
     if "callback_query" in update:
         cb = update["callback_query"]; chat_id, data, c_m_id = cb["message"]["chat"]["id"], cb["data"], cb["message"]["message_id"]
@@ -372,7 +375,7 @@ def webhook():
             for i in range(12):
                 curr.append({"text": months[i], "callback_data": f"mreport_{year}-{i+1:02d}"})
                 if len(curr) == 3 or i == 11: rows.append(curr); curr = []
-            send_simple_message(chat_id, "📊 Select Month for Executive Report:", {"inline_keyboard": rows})
+            send_simple_message(chat_id, "📊 Select Month:", {"inline_keyboard": rows})
         elif data.startswith('mreport_'):
             delete_message(chat_id, c_m_id); sel_month = data.replace('mreport_', '')
             resp = send_simple_message(chat_id, f"⏳ Generating Monthly PDF for <b>{sel_month}</b> ...")
