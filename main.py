@@ -16,6 +16,7 @@ import random
 import matplotlib
 matplotlib.use('Agg') # សម្រាប់ដំណើរការលើ Server ដោយគ្មាន screen
 import matplotlib.pyplot as plt
+import qrcode
 
 app = Flask(__name__)
 
@@ -175,7 +176,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         petal_pink = (255, 220, 230)
         logo_path = 'logo.png'
 
-        # ១. Background Petals (Watermark Background)
+        # ១. Background Petals
         with pdf.local_context(fill_opacity=0.06):
             pdf.set_fill_color(*petal_pink)
             random.seed(42)
@@ -183,14 +184,13 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
                 x, y, w = random.randint(10, 190), random.randint(10, 280), random.randint(12, 30)
                 pdf.ellipse(x, y, w, w * 0.6, style="F")
 
-        # ២. Watermark Logo (Middle)
+        # ២. Watermark Logo
         if os.path.exists(logo_path):
             with pdf.local_context(fill_opacity=0.15):
                 pdf.image(logo_path, x=35, y=85, w=140)
 
-        # ៣. Header - Center Logo & Title
+        # ៣. Header
         if os.path.exists(logo_path):
-            # Center the logo at top: (PageWidth 210 - LogoWidth 40) / 2 = 85
             pdf.image(logo_path, x=85, y=10, w=40)
             pdf.set_y(52)
         else:
@@ -206,19 +206,16 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.set_font("Helvetica", "I", 11); pdf.set_text_color(100)
         pdf.cell(0, 6, f"Period: {report_data['display_date']}", ln=True, align="C")
         
-        # Header Line
         pdf.set_draw_color(*hlcc_blue); pdf.set_line_width(0.8)
         pdf.line(20, pdf.get_y() + 5, 190, pdf.get_y() + 5)
         pdf.ln(12)
 
         # ៤. Content Tables
         for page in report_data['pages']:
-            # Page Title Section
             pdf.set_font("Helvetica", "B", 12); pdf.set_fill_color(*hlcc_blue); pdf.set_text_color(255, 255, 255)
             pdf.cell(0, 10, f"   PAGE: {page['page_name'].upper()}", ln=True, fill=True)
             pdf.ln(3)
             
-            # Row 1: Key Metrics
             pdf.set_font("Helvetica", "B", 9); pdf.set_text_color(100); pdf.set_fill_color(245, 245, 245)
             w4 = 47.5
             pdf.cell(w4, 7, "TOTAL CHATS", 1, 0, 'C', fill=True)
@@ -233,7 +230,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.cell(w4, 9, str(page['close_deal']), 1, 1, 'C')
             pdf.ln(2)
             
-            # Row 2: Revenue
             pdf.set_font("Helvetica", "B", 9); pdf.set_text_color(100); pdf.set_fill_color(245, 245, 245)
             w3 = 63.3
             pdf.cell(w3, 7, "PACKAGE COUNT", 1, 0, 'C', fill=True)
@@ -247,7 +243,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.cell(w3, 9, f"${rev_val:,.2f}", 1, 0, 'C')
             pdf.cell(w3, 9, f"${page['target_amount']:,.2f}", 1, 1, 'C')
             
-            # Conversion Rates Sub-table
             pdf.ln(2)
             pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(120)
             pdf.cell(0, 5, "CONVERSION PERFORMANCE:", ln=True)
@@ -256,8 +251,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.cell(0, 6, conv_text, ln=True)
             pdf.ln(8)
 
-        # ៥. Graph at the Bottom
-        # Check if enough space is left, otherwise add new page
+        # ៥. Graph & QR Code at the Bottom
         if pdf.get_y() > 180: pdf.add_page()
         
         pdf.set_draw_color(200, 200, 200); pdf.set_line_width(0.2)
@@ -273,24 +267,35 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         plt.title('SALES ACHIEVEMENT VS TARGET (%)', fontsize=12, fontweight='bold', pad=15)
         plt.ylim(0, max(max(achieved_pct) + 15, 110))
         plt.grid(axis='y', linestyle='--', alpha=0.7)
-        
-        # Add values on top of bars
         for bar in bars:
             yval = bar.get_height()
             plt.text(bar.get_x() + bar.get_width()/2, yval + 2, f'{yval}%', ha='center', va='bottom', fontweight='bold')
-
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
-            plt.savefig(tmpfile.name, format='png', bbox_inches='tight', dpi=120)
-            chart_path = tmpfile.name
+            plt.savefig(tmpfile.name, format='png', bbox_inches='tight', dpi=120); chart_path = tmpfile.name
         plt.close()
-        
-        # Center the chart at bottom
         pdf.image(chart_path, x=35, y=pdf.get_y() + 5, w=140)
         if os.path.exists(chart_path): os.remove(chart_path)
 
-        # Footer
+        # --- ៦. បន្ថែម QR Code សម្រាប់ Help & Credits ---
+        # បង្កើត QR Code Link ទៅកាន់ Telegram Developer
+        qr = qrcode.QRCode(box_size=10, border=1)
+        qr.add_data("https://t.me/OUDOM333")
+        qr.make(fit=True)
+        img_qr = qr.make_image(fill_color="black", back_color="white")
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_qr:
+            img_qr.save(tmp_qr.name); qr_path = tmp_qr.name
+        
+        pdf.image(qr_path, x=175, y=262, w=20)
+        if os.path.exists(qr_path): os.remove(qr_path)
+        
+        pdf.set_y(265); pdf.set_x(140); pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*hlcc_blue)
+        pdf.cell(33, 5, "SCAN FOR HELP", ln=True, align="R")
+        pdf.set_x(140); pdf.set_font("Helvetica", "", 7); pdf.set_text_color(100)
+        pdf.cell(33, 4, "@OUDOM333", ln=True, align="R")
+
+        # Footer & Credits
         pdf.set_y(-15); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(150)
-        pdf.cell(0, 10, f"HLCC System - Confidential Report - Gen: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
+        pdf.cell(0, 10, f"System by OTO Messages | Developed by @OUDOM333 | Generated: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
         
         prefix = "HLCC_Monthly_Report" if is_monthly else "HLCC_Daily_Report"
         file_name = f"{prefix}_{report_data['search_key']}.pdf"
@@ -302,7 +307,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
 
 # ==========================================
-# Generate Text Report (As is)
+# Generate Text Report (Updated Buttons)
 # ==========================================
 def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -312,10 +317,12 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
         today_for_display, search_key = report_data['display_date'], report_data['search_key']
         cache_key = f"M_REPORT_v{CACHE_VERSION}_{search_key}" if is_monthly else f"D_REPORT_v{CACHE_VERSION}_{search_key}"
         
+        # កែសម្រួល៖ ប្តូរឈ្មោះប៊ូតុង PDF និងបន្ថែមប៊ូតុង Help
         keyboard = {"inline_keyboard": [
-            [{"text": f"📥 Download {'Monthly' if is_monthly else 'Daily'} PDF", "callback_data": f"{'mpdf_' if is_monthly else 'pdf_'}{search_key}"}],
+            [{"text": "📥 PDF", "callback_data": f"{'mpdf_' if is_monthly else 'pdf_'}{search_key}"}],
             [{"text": "📅 ប្រចាំថ្ងៃ (Daily Report)", "callback_data": "ask_specific_date"}],
-            [{"text": "📊 ប្រចាំខែ (Monthly Report)", "callback_data": "ask_monthly_report"}]
+            [{"text": "📊 ប្រចាំខែ (Monthly Report)", "callback_data": "ask_monthly_report"}],
+            [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]
         ]}
 
         if cache_key in report_cache:
