@@ -148,7 +148,7 @@ def fetch_report_data(target_date, is_monthly=False):
         
         if num_chat > 0 or total_sale_monthly > 0:
             has_data = True
-            # ការគណនាភាគរយយក ២ ខ្ទង់ទសភាគ
+            # ការគណនាភាគរយយក ២ ខ្ទង់ទសភាគ (0.00%) ដូច App Script
             pages_data.append({
                 "page_name": page_name, "num_chat": num_chat, "online_booking": online_booking, 
                 "visit": visit, "close_deal": close_deal, "package_count": package_count,
@@ -196,7 +196,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         logo_path = 'logo.png'
         bg_path = 'BG.png'
 
-        # 1. Background Image
+        # 1. Background Image (10% Opacity)
         if os.path.exists(bg_path):
             with pdf.local_context(fill_opacity=0.10): 
                 pdf.image(bg_path, x=0, y=0, w=210, h=297)
@@ -216,12 +216,12 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.set_draw_color(229, 231, 235); pdf.set_line_width(0.5)
         pdf.line(20, pdf.get_y() + 4, 190, pdf.get_y() + 4); pdf.ln(8)
 
-        # 3. Luxury Cards Layout (With requested detailed data)
+        # 3. Luxury Cards Layout (Detailed Data)
         for page in report_data['pages']:
             if pdf.get_y() > 235: pdf.add_page()
             x_start, y_start = 15, pdf.get_y()
             
-            # Card Background (Taller to fit all details)
+            # Card Background
             pdf.set_fill_color(255, 255, 255); pdf.set_draw_color(229, 231, 235)
             pdf.rect(x_start, y_start, 180, 50, 'DF')
             
@@ -229,7 +229,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.set_fill_color(*PRIMARY_BLUE)
             pdf.rect(x_start, y_start, 3, 50, 'F')
             
-            # --- Row 1: Branch Name & Today's Sales ---
+            # Row 1: Title & Revenue
             pdf.set_xy(x_start + 8, y_start + 5)
             pdf.set_font("Helvetica", "B", 12); pdf.set_text_color(*PRIMARY_BLUE)
             pdf.cell(90, 6, page['page_name'].upper(), ln=False)
@@ -239,7 +239,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             rev_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
             pdf.cell(80, 6, f"{rev_label}: ${rev_val:,.2f}", align="R", ln=True)
 
-            # --- Row 2: Metrics Summary ---
+            # Row 2: Metrics Summary
             pdf.set_y(pdf.get_y() + 2)
             pdf.set_x(x_start + 8)
             col_w = 42
@@ -261,27 +261,27 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
                 pdf.set_xy(x_start + 8 + (i * col_w), y_m_val)
                 pdf.cell(col_w, 5, str(val), align="L")
             
-            # --- Row 3: Conversion & Target Titles ---
+            # Row 3: Conversion & Target Titles
             y_conv_title = y_m_val + 8
             pdf.set_xy(x_start + 8, y_conv_title)
             pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*PRIMARY_BLUE)
             pdf.cell(85, 5, "CONVERSION RATES", ln=False)
             pdf.cell(85, 5, "TARGET STATUS (MONTH)", ln=True)
 
-            # --- Row 4: Conversion & Target Data Line 1 ---
+            # Row 4: Conversion & Target Data Line 1
             y_conv_d1 = y_conv_title + 5
             pdf.set_xy(x_start + 8, y_conv_d1)
             pdf.set_font("Helvetica", "", 8); pdf.set_text_color(*TEXT_MAIN)
             pdf.cell(85, 5, f"Booking: {page['rate_booking']}%  |  Visit: {page['rate_visit']}%", ln=False)
             pdf.cell(85, 5, f"Goal: ${page['target_amount']:,.2f}  |  Actual: ${page['total_sale_monthly']:,.2f}", ln=True)
 
-            # --- Row 5: Conversion & Target Data Line 2 ---
+            # Row 5: Conversion & Target Data Line 2
             y_conv_d2 = y_conv_d1 + 5
             pdf.set_xy(x_start + 8, y_conv_d2)
             pdf.cell(85, 5, f"Deal: {page['rate_close_deal']}%  |  Pkg: {page['rate_package']}%", ln=False)
             pdf.cell(28, 5, f"Achieved: {page['rate_sale']}%", ln=False)
             
-            # Progress bar for Target Achieved
+            # Progress Bar
             bar_x, bar_y = pdf.get_x(), pdf.get_y() + 1.5
             pdf.set_fill_color(243, 244, 246); pdf.rect(bar_x, bar_y, 45, 2.5, 'F')
             achieved = float(page['rate_sale'])
@@ -289,7 +289,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.set_fill_color(*ACCENT_BLUE)
             if fill_w > 0: pdf.rect(bar_x, bar_y, fill_w, 2.5, 'F')
 
-            pdf.ln(9) # Space before next card
+            pdf.ln(9)
 
         # 4. Premium Modern Chart
         if pdf.get_y() > 190: pdf.add_page()
@@ -325,25 +325,27 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         
         pdf.image(chart_path, x=20, y=pdf.get_y(), w=170)
         os.remove(chart_path)
-        pdf.set_y(pdf.get_y() + 65) 
-
-        # 5. Minimalist QR & Footer
+        
+        # 5. Centered QR Code & Footer
         qr = qrcode.QRCode(version=1, border=1, box_size=10)
         qr.add_data("https://t.me/OUDOM333"); qr.make(fit=True)
         img_qr = qr.make_image(fill_color="#1F2937", back_color="white").convert('RGB')
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as t_qr:
             img_qr.save(t_qr.name); q_p = t_qr.name
         
-        pdf.set_fill_color(255, 255, 255)
-        pdf.rect(179, 259, 18, 18, 'F')
-        pdf.image(q_p, x=180, y=260, w=16); os.remove(q_p)
+        qr_y = 255 
+        qr_w = 18
+        qr_x = (210 - qr_w) / 2 
         
-        pdf.set_y(263); pdf.set_x(120); pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*PRIMARY_BLUE)
-        pdf.cell(57, 5, "CONTACT DEVELOPER", ln=True, align="R")
-        pdf.set_x(120); pdf.set_font("Helvetica", "", 7); pdf.set_text_color(*TEXT_MUTED)
-        pdf.cell(57, 4, "@OUDOM333", ln=True, align="R")
+        pdf.set_fill_color(255, 255, 255)
+        pdf.rect(qr_x - 1, qr_y - 1, qr_w + 2, qr_w + 2, 'F')
+        pdf.image(q_p, x=qr_x, y=qr_y, w=qr_w); os.remove(q_p)
+        
+        pdf.set_y(qr_y + qr_w + 1)
+        pdf.set_font("Helvetica", "B", 7); pdf.set_text_color(*PRIMARY_BLUE)
+        pdf.cell(0, 4, "SCAN TO CONTACT DEVELOPER: @OUDOM333", ln=True, align="C")
 
-        pdf.set_y(-15); pdf.set_font("Helvetica", "", 8); pdf.set_text_color(156, 163, 175)
+        pdf.set_y(-12); pdf.set_font("Helvetica", "", 8); pdf.set_text_color(156, 163, 175)
         pdf.cell(0, 10, f"Powered by OTO Messages  |  Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", 0, 0, 'C')
         
         f_n = f"HLCC_Report_{report_data['search_key']}.pdf"; f_p = os.path.join(tempfile.gettempdir(), f_n); pdf.output(f_p)
