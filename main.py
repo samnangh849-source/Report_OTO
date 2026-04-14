@@ -14,7 +14,7 @@ from fpdf import FPDF
 import tempfile
 import random
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg') # សម្រាប់ដំណើរការលើ Server ដោយគ្មាន screen
 import matplotlib.pyplot as plt
 
 app = Flask(__name__)
@@ -45,7 +45,7 @@ def telegram_api(method, payload, is_multipart=False):
         if is_multipart: 
             return requests.post(url, files=payload['files'], data=payload['data'], timeout=30)
         else: 
-            return requests.post(url, json=payload, timeout=5)
+            return requests.post(url, json=payload, timeout=10)
     except Exception as e:
         print(f"Telegram API Error ({method}):", e)
         return None
@@ -121,12 +121,12 @@ def fetch_report_data(target_date, is_monthly=False):
             row_match = is_match_month if is_monthly else is_match_day
 
             if is_match_month:
-                try: total_sale_monthly += float(row[7] or 0)
+                try: total_sale_monthly += float(row[7].replace('$', '').replace(',', '') or 0)
                 except: pass
             
             if row_match:
                 num_chat += 1
-                try: total_sale_today += float(row[7] or 0)
+                try: total_sale_today += float(row[7].replace('$', '').replace(',', '') or 0)
                 except: pass
                 if len(row) > 9 and str(row[9]) in ['1', 'TRUE', 'true']: online_booking += 1
                 if len(row) > 10 and str(row[10]) in ['1', 'TRUE', 'true']: visit += 1
@@ -229,8 +229,8 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*hlcc_blue)
             pdf.cell(63.3, 8, str(page['package_count']), 1, 0, 'C')
             rev = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
-            pdf.cell(63.3, 8, f"${rev:.2f}", 1, 0, 'C')
-            pdf.cell(63.3, 8, f"${page['target_amount']:.2f}", 1, 1, 'C')
+            pdf.cell(63.3, 8, f"${rev:,.2f}", 1, 0, 'C')
+            pdf.cell(63.3, 8, f"${page['target_amount']:,.2f}", 1, 1, 'C')
             pdf.ln(4)
 
         pdf.set_y(-20); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(150)
@@ -246,7 +246,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
 
 # ==========================================
-# Generate Text Report (Using Monospace for Data)
+# Generate Text Report (Updated with Fixed Monospace)
 # ==========================================
 def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -282,23 +282,22 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
             message += f"📅 Period: {today_for_display} | 🌐 Page: {p_name}\n\n"
             
             message += "📈 <b>Activity Summary</b>\n"
-            # ប្រើ Tag <code> សម្រាប់ទិន្នន័យតួលេខ (Monospace)
-            message += f"• 💬 Total chats: <code>{page['num_chat']}</code>\n"
-            message += f"• 📅 Bookings: <code>{page['online_booking']}</code>\n"
-            message += f"• 📍 Visits: <code>{page['visit']}</code>\n"
-            message += f"• ✅ Closed deals: <code>{page['close_deal']}</code>\n"
+            message += f"• 💬 Total chats: <code>{page['num_chat']:<4}</code>\n"
+            message += f"• 📅 Bookings:    <code>{page['online_booking']:<4}</code>\n"
+            message += f"• 📍 Visits:      <code>{page['visit']:<4}</code>\n"
+            message += f"• ✅ Closed deals: <code>{page['close_deal']:<4}</code>\n"
             
             sale_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
             sale_label = "Monthly" if is_monthly else "Today’s"
-            message += f"• 💰 {sale_label} sales: <code>${sale_val:.2f}</code>\n\n"
+            message += f"• 💰 {sale_label} sales: <code>${sale_val:,.2f}</code>\n\n"
             
             message += "🔄 <b>Conversion Rates</b>\n"
             message += f"📅 Booking: <code>{page['rate_booking']}%</code> | 📍 Visit: <code>{page['rate_visit']}%</code>\n"
-            message += f"✅ Deal: <code>{page['rate_close_deal']}%</code> | 📦 Package: <code>{page['rate_package']}%</code>\n\n"
+            message += f"✅ Deal:    <code>{page['rate_close_deal']}%</code> | 📦 Package: <code>{page['rate_package']}%</code>\n\n"
             
             message += "🎯 <b>Monthly Target</b>\n"
-            message += f"🏆 Goal: <code>${page['target_amount']:.2f}</code>\n"
-            message += f"💵 Actual: <code>${page['total_sale_monthly']:.2f}</code>\n"
+            message += f"🏆 Goal:     <code>${page['target_amount']:,.2f}</code>\n"
+            message += f"💵 Actual:   <code>${page['total_sale_monthly']:,.2f}</code>\n"
             message += f"📊 Achieved: <b><code>{page['rate_sale']}%</code></b>\n"
             message += "====================\n\n"
         
