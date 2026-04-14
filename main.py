@@ -33,7 +33,7 @@ TARGET_PAGES = ['Main Page', 'Sovanna']
 tz = pytz.timezone('Asia/Phnom_Penh')
 
 report_cache = {}
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # បង្កើន version ដើម្បី clear cache ចាស់
 
 # ==========================================
 # Telegram APIs
@@ -157,7 +157,7 @@ def fetch_report_data(target_date, is_monthly=False):
             "has_data": has_data, "pages": pages_data}, True
 
 # ==========================================
-# Generate PDF (Professional Layout with Fixed QR)
+# Generate PDF (Professional Layout with QR Help)
 # ==========================================
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -272,27 +272,27 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.image(chart_path, x=35, y=pdf.get_y() + 5, w=130)
         if os.path.exists(chart_path): os.remove(chart_path)
 
-        # --- ៦. FIXED QR Code (RGB Conversion) ---
+        # --- ៦. FIXED QR Code (Contact Developer) ---
         qr = qrcode.QRCode(version=1, border=2, box_size=10)
         qr.add_data("https://t.me/OUDOM333")
         qr.make(fit=True)
         img_qr = qr.make_image(fill_color="black", back_color="white").convert('RGB')
-        
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_qr:
             img_qr.save(tmp_qr.name); qr_path = tmp_qr.name
         
-        # គូរប្រអប់សពីក្រោយ QR ដើម្បីឱ្យ Scan កាន់តែងាយ
+        # គូរប្រអប់សពីក្រោយ QR
         pdf.set_fill_color(255, 255, 255)
         pdf.rect(174, 261, 22, 22, 'F')
         pdf.image(qr_path, x=175, y=262, w=20)
         if os.path.exists(qr_path): os.remove(qr_path)
         
-        pdf.set_y(265); pdf.set_x(140); pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*hlcc_blue)
-        pdf.cell(33, 5, "SCAN FOR HELP", ln=True, align="R")
-        pdf.set_x(140); pdf.set_font("Helvetica", "", 7); pdf.set_text_color(100)
-        pdf.cell(33, 4, "@OUDOM333", ln=True, align="R")
+        # អត្ថបទបញ្ជាក់ន័យទំនាក់ទំនងទៅកាន់ Developer
+        pdf.set_y(265); pdf.set_x(120); pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*hlcc_blue)
+        pdf.cell(53, 5, "SCAN TO CONTACT DEVELOPER", ln=True, align="R")
+        pdf.set_x(120); pdf.set_font("Helvetica", "", 7); pdf.set_text_color(100)
+        pdf.cell(53, 4, "@OUDOM333", ln=True, align="R")
 
-        # Footer
+        # Footer & Credits
         pdf.set_y(-15); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(150)
         pdf.cell(0, 10, f"System by OTO Messages | Developed by @OUDOM333 | Generated: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
         
@@ -305,7 +305,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
 
 # ==========================================
-# Generate Text Report (Vertical Buttons)
+# Generate Text Report
 # ==========================================
 def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -315,6 +315,7 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
         today_for_display, search_key = report_data['display_date'], report_data['search_key']
         cache_key = f"M_REPORT_v{CACHE_VERSION}_{search_key}" if is_monthly else f"D_REPORT_v{CACHE_VERSION}_{search_key}"
         
+        # ប៊ូតុង PDF និង Help
         keyboard = {"inline_keyboard": [
             [{"text": "📥 PDF", "callback_data": f"{'mpdf_' if is_monthly else 'pdf_'}{search_key}"}],
             [{"text": "📅 ប្រចាំថ្ងៃ (Daily Report)", "callback_data": "ask_specific_date"}],
@@ -347,10 +348,12 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
             sale_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
             sale_label = "Monthly sales" if is_monthly else "Today's sales"
             message += f"{sale_label}: <code>${sale_val:,.2f}</code>\n\n"
+            
             message += "<b>Conversion Rates</b>\n"
             message += f"Booking: <code>{page['rate_booking']}%</code> | Visit: <code>{page['rate_visit']}%</code>\n"
             message += f"Deal:    <code>{page['rate_close_deal']}%</code> | Pkg:   <code>{page['rate_package']}%</code>\n\n"
-            message += "<b>Target Status</b>\n"
+            
+            message += "<b>Target Status (Month)</b>\n"
             message += f"Goal:     <code>${page['target_amount']:,.2f}</code>\n"
             message += f"Actual:   <code>${page['total_sale_monthly']:,.2f}</code>\n"
             message += f"Achieved: <b><code>{page['rate_sale']}%</code></b>\n============================\n\n"
