@@ -297,12 +297,14 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
 
             pdf.ln(10) # Adjust space between cards
 
-        # 4. Premium Modern Chart
+        # 4. Premium Modern Chart (UPDATED)
         if pdf.get_y() > 190: pdf.add_page()
         pdf.set_font("Helvetica", "B", 14); pdf.set_text_color(*PRIMARY_BLUE)
         pdf.ln(5); pdf.cell(0, 10, "ACHIEVEMENT OVERVIEW", ln=True, align="C")
         
+        # ទាញយកភាគរយទាំងលេខគត់ដើម្បីគូរ និងអក្សរពេញ (2 ទសភាគ) ដើម្បីសរសេរបង្ហាញ
         achieved_pct = [float(p['rate_sale']) for p in report_data['pages']]
+        achieved_str = [p['rate_sale'] for p in report_data['pages']]
         page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
         
         plt.figure(figsize=(9, 4))
@@ -313,15 +315,22 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         ax.spines['bottom'].set_color('#E5E7EB')
         
         bars = plt.bar(page_names, achieved_pct, color='#3B82F6', alpha=0.85, width=0.55)
+        
+        # បន្ថែមបន្ទាត់គោលដៅ 100% (Goal Line) ពណ៌បៃតង
+        plt.axhline(y=100, color='#10B981', linestyle='--', alpha=0.6, linewidth=1.5)
+        plt.text(-0.4, 102, 'Goal (100%)', color='#10B981', fontsize=7, fontweight='bold')
+
         plt.ylabel('Target Achieved (%)', fontsize=9, color='#6B7280')
         plt.xticks(fontsize=8, color='#374151', rotation=0)
         plt.yticks(fontsize=8, color='#6B7280')
-        plt.ylim(0, max(max(achieved_pct) + 20, 110))
+        # កំណត់កម្ពស់អប្បបរមាត្រឹម 115 ជានិច្ច ដើម្បីកុំឱ្យដាច់បន្ទាត់ Goal Line
+        plt.ylim(0, max(max(achieved_pct) + 20, 115)) 
         plt.grid(axis='y', linestyle='-', alpha=0.4, color='#E5E7EB')
         
-        for bar in bars:
+        # សរសេរលេខភាគរយលើរបារ ដោយប្រើទម្រង់ 2 ទសភាគដូចគ្នា
+        for bar, rate_str in zip(bars, achieved_str):
             height = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2, height + 2, f'{height}%', 
+            plt.text(bar.get_x() + bar.get_width()/2, height + 2, f'{rate_str}%', 
                      ha='center', va='bottom', fontsize=8, fontweight='bold', color='#1E40AF')
         
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
