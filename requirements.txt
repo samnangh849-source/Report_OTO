@@ -8,3 +8,5 @@ gunicorn==21.2.0
 fpdf2==2.7.9
 matplotlib>=3.9.0
 numpy>=2.0.0
+qrcode==7.4.2
+Pillow>=10.0.0
