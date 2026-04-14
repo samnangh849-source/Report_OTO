@@ -148,7 +148,6 @@ def fetch_report_data(target_date, is_monthly=False):
         
         if num_chat > 0 or total_sale_monthly > 0:
             has_data = True
-            # ការគណនាភាគរយយក ២ ខ្ទង់ទសភាគ (0.00%) ដូច App Script
             pages_data.append({
                 "page_name": page_name, "num_chat": num_chat, "online_booking": online_booking, 
                 "visit": visit, "close_deal": close_deal, "package_count": package_count,
@@ -216,18 +215,18 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.set_draw_color(229, 231, 235); pdf.set_line_width(0.5)
         pdf.line(20, pdf.get_y() + 4, 190, pdf.get_y() + 4); pdf.ln(8)
 
-        # 3. Luxury Cards Layout (Detailed Data)
+        # 3. Luxury Cards Layout (Vertical Target Status exactly as requested)
         for page in report_data['pages']:
-            if pdf.get_y() > 235: pdf.add_page()
+            if pdf.get_y() > 230: pdf.add_page()
             x_start, y_start = 15, pdf.get_y()
             
             # Card Background
             pdf.set_fill_color(255, 255, 255); pdf.set_draw_color(229, 231, 235)
-            pdf.rect(x_start, y_start, 180, 50, 'DF')
+            pdf.rect(x_start, y_start, 180, 54, 'DF')
             
             # Left Accent Bar
             pdf.set_fill_color(*PRIMARY_BLUE)
-            pdf.rect(x_start, y_start, 3, 50, 'F')
+            pdf.rect(x_start, y_start, 3, 54, 'F')
             
             # Row 1: Title & Revenue
             pdf.set_xy(x_start + 8, y_start + 5)
@@ -262,26 +261,33 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
                 pdf.cell(col_w, 5, str(val), align="L")
             
             # Row 3: Conversion & Target Titles
-            y_conv_title = y_m_val + 8
+            y_conv_title = y_m_val + 6
             pdf.set_xy(x_start + 8, y_conv_title)
             pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*PRIMARY_BLUE)
             pdf.cell(85, 5, "CONVERSION RATES", ln=False)
             pdf.cell(85, 5, "TARGET STATUS (MONTH)", ln=True)
 
-            # Row 4: Conversion & Target Data Line 1
-            y_conv_d1 = y_conv_title + 5
+            # Row 4: Conversion & Target Line 1 (Booking & Goal)
+            y_conv_d1 = pdf.get_y()
             pdf.set_xy(x_start + 8, y_conv_d1)
             pdf.set_font("Helvetica", "", 8); pdf.set_text_color(*TEXT_MAIN)
             pdf.cell(85, 5, f"Booking: {page['rate_booking']}%  |  Visit: {page['rate_visit']}%", ln=False)
-            pdf.cell(85, 5, f"Goal: ${page['target_amount']:,.2f}  |  Actual: ${page['total_sale_monthly']:,.2f}", ln=True)
+            pdf.cell(85, 5, f"Goal: ${page['target_amount']:,.2f}", ln=True)
 
-            # Row 5: Conversion & Target Data Line 2
-            y_conv_d2 = y_conv_d1 + 5
+            # Row 5: Conversion & Target Line 2 (Deal & Actual)
+            y_conv_d2 = pdf.get_y()
             pdf.set_xy(x_start + 8, y_conv_d2)
             pdf.cell(85, 5, f"Deal: {page['rate_close_deal']}%  |  Pkg: {page['rate_package']}%", ln=False)
-            pdf.cell(28, 5, f"Achieved: {page['rate_sale']}%", ln=False)
+            pdf.cell(85, 5, f"Actual: ${page['total_sale_monthly']:,.2f}", ln=True)
+
+            # Row 6: Target Achieved & Progress Bar
+            y_conv_d3 = pdf.get_y()
+            pdf.set_xy(x_start + 8, y_conv_d3)
+            pdf.cell(85, 5, "", ln=False) # Space to align with Target column
+            pdf.set_font("Helvetica", "B", 8)
+            pdf.cell(30, 5, f"Achieved: {page['rate_sale']}%", ln=False)
             
-            # Progress Bar
+            # Draw Progress Bar next to "Achieved:"
             bar_x, bar_y = pdf.get_x(), pdf.get_y() + 1.5
             pdf.set_fill_color(243, 244, 246); pdf.rect(bar_x, bar_y, 45, 2.5, 'F')
             achieved = float(page['rate_sale'])
@@ -289,7 +295,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.set_fill_color(*ACCENT_BLUE)
             if fill_w > 0: pdf.rect(bar_x, bar_y, fill_w, 2.5, 'F')
 
-            pdf.ln(9)
+            pdf.ln(10) # Adjust space between cards
 
         # 4. Premium Modern Chart
         if pdf.get_y() > 190: pdf.add_page()
