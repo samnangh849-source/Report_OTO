@@ -330,7 +330,7 @@ def webhook():
         msg = update["message"]; text = msg.get("text", ""); chat_id = msg["chat"]["id"]
         if text.startswith("/start"):
             kb = {"inline_keyboard": [[{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}, {"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],[{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]]}
-            send_simple_message(chat_id, "👋 <b>Welcome to HLCC Reporting System!</b>", kb)
+            send_simple_message(chat_id, "👋 <b>Welcome to OTO Message System!</b>", kb)
             return jsonify({"status": "ok"})
     if "callback_query" in update:
         cb = update["callback_query"]; chat_id, data, c_m_id = cb["message"]["chat"]["id"], cb["data"], cb["message"]["message_id"]
