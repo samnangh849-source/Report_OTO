@@ -216,6 +216,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.cell(col_w, 8, "BOOKING", 1, 0, 'C', fill=True)
             pdf.cell(col_w, 8, "VISIT", 1, 0, 'C', fill=True)
             pdf.cell(col_w, 8, "CLOSE DEAL", 1, 1, 'C', fill=True)
+            
             pdf.set_font("Helvetica", "", 11); pdf.set_text_color(0, 0, 0)
             pdf.cell(col_w, 8, str(page['num_chat']), 1, 0, 'C')
             pdf.cell(col_w, 8, str(page['online_booking']), 1, 0, 'C')
@@ -317,6 +318,9 @@ def webhook():
     if "callback_query" in update:
         cb = update["callback_query"]
         chat_id, data = cb["message"]["chat"]["id"], cb["data"]
+        # ចាប់យក Message ID នៃផ្ទាំង Menu ដែលកំពុងបញ្ជា
+        current_msg_id = cb["message"]["message_id"]
+        
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
         
         if data == 'ask_monthly_report':
@@ -329,6 +333,8 @@ def webhook():
             send_simple_message(chat_id, f"📊 សូមជ្រើសរើស <b>ខែ</b> ៖", {"inline_keyboard": rows})
             
         elif data.startswith('mreport_'):
+            # លុបផ្ទាំងជ្រើសរើសខែ ចោលបន្ទាប់ពីជ្រើសរើសរួច
+            delete_message(chat_id, current_msg_id)
             sel_month = data.replace('mreport_', '')
             resp = send_simple_message(chat_id, f"⏳ កំពុងគណនាទិន្នន័យសរុបប្រចាំខែ <b>{sel_month}</b> ...")
             loading_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
@@ -350,6 +356,8 @@ def webhook():
             send_simple_message(chat_id, f"📅 សូមជ្រើសរើស <b>ខែ</b> ៖", {"inline_keyboard": rows})
 
         elif data.startswith('month_'):
+            # លុបផ្ទាំងជ្រើសរើសខែ (សម្រាប់ Daily) ចោលបន្ទាប់ពីជ្រើសរើសរួច
+            delete_message(chat_id, current_msg_id)
             sel_month = data.replace('month_', '')
             y, m = map(int, sel_month.split('-'))
             days = calendar.monthrange(y, m)[1]
@@ -361,6 +369,8 @@ def webhook():
             send_simple_message(chat_id, f"📅 សូមជ្រើសរើស <b>ថ្ងៃទី</b> សម្រាប់ខែ {sel_month} ៖", {"inline_keyboard": rows})
 
         elif data.startswith('report_'):
+            # លុបផ្ទាំងជ្រើសរើសថ្ងៃទី ចោលបន្ទាប់ពីជ្រើសរើសរួច
+            delete_message(chat_id, current_msg_id)
             sel_date = data.replace('report_', '')
             resp = send_simple_message(chat_id, f"⏳ កំពុងស្វែងរកទិន្នន័យសម្រាប់ថ្ងៃ <b>{sel_date}</b> ...")
             loading_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
