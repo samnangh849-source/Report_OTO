@@ -155,7 +155,7 @@ def fetch_report_data(target_date, is_monthly=False):
             "has_data": has_data, "pages": pages_data}, True
 
 # ==========================================
-# Generate PDF (Dashboard HLCC)
+# Generate PDF (Professional Layout)
 # ==========================================
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -168,74 +168,129 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         
         pdf = FPDF(orientation='P', unit='mm', format='A4')
         pdf.add_page()
-        hlcc_blue, hlcc_grey, petal_pink = (52, 157, 216), (80, 80, 80), (255, 220, 230)
+        
+        # Colors & Resources
+        hlcc_blue = (52, 157, 216)
+        hlcc_grey = (60, 60, 60)
+        petal_pink = (255, 220, 230)
         logo_path = 'logo.png'
 
+        # ១. Background Petals (Watermark Background)
         with pdf.local_context(fill_opacity=0.06):
             pdf.set_fill_color(*petal_pink)
             random.seed(42)
-            for _ in range(20):
-                x, y, w = random.randint(10, 190), random.randint(10, 280), random.randint(10, 25)
+            for _ in range(25):
+                x, y, w = random.randint(10, 190), random.randint(10, 280), random.randint(12, 30)
                 pdf.ellipse(x, y, w, w * 0.6, style="F")
 
+        # ២. Watermark Logo (Middle)
         if os.path.exists(logo_path):
             with pdf.local_context(fill_opacity=0.15):
-                pdf.image(logo_path, x=30, y=70, w=150)
-            pdf.image(logo_path, x=10, y=8, w=35)
-            pdf.set_x(50)
-        else: pdf.set_x(10)
+                pdf.image(logo_path, x=35, y=85, w=140)
 
-        pdf.set_font("Helvetica", "B", 20); pdf.set_text_color(*hlcc_blue)
-        pdf.cell(0, 10, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="L")
-        pdf.set_x(pdf.get_x() + 40 if os.path.exists(logo_path) else 10)
-        pdf.set_font("Helvetica", "B", 12); pdf.set_text_color(*hlcc_grey)
-        title = f"{'Monthly' if is_monthly else 'Daily'} Sales Dashboard - {report_data['display_date']}"
-        pdf.cell(0, 7, title, ln=True, align="L")
+        # ៣. Header - Center Logo & Title
+        if os.path.exists(logo_path):
+            # Center the logo at top: (PageWidth 210 - LogoWidth 40) / 2 = 85
+            pdf.image(logo_path, x=85, y=10, w=40)
+            pdf.set_y(52)
+        else:
+            pdf.set_y(20)
+
+        pdf.set_font("Helvetica", "B", 22); pdf.set_text_color(*hlcc_blue)
+        pdf.cell(0, 10, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="C")
+        
+        pdf.set_font("Helvetica", "B", 13); pdf.set_text_color(*hlcc_grey)
+        report_title = f"{'MONTHLY' if is_monthly else 'DAILY'} SALES PERFORMANCE DASHBOARD"
+        pdf.cell(0, 8, report_title, ln=True, align="C")
+        
+        pdf.set_font("Helvetica", "I", 11); pdf.set_text_color(100)
+        pdf.cell(0, 6, f"Period: {report_data['display_date']}", ln=True, align="C")
+        
+        # Header Line
+        pdf.set_draw_color(*hlcc_blue); pdf.set_line_width(0.8)
+        pdf.line(20, pdf.get_y() + 5, 190, pdf.get_y() + 5)
+        pdf.ln(12)
+
+        # ៤. Content Tables
+        for page in report_data['pages']:
+            # Page Title Section
+            pdf.set_font("Helvetica", "B", 12); pdf.set_fill_color(*hlcc_blue); pdf.set_text_color(255, 255, 255)
+            pdf.cell(0, 10, f"   PAGE: {page['page_name'].upper()}", ln=True, fill=True)
+            pdf.ln(3)
+            
+            # Row 1: Key Metrics
+            pdf.set_font("Helvetica", "B", 9); pdf.set_text_color(100); pdf.set_fill_color(245, 245, 245)
+            w4 = 47.5
+            pdf.cell(w4, 7, "TOTAL CHATS", 1, 0, 'C', fill=True)
+            pdf.cell(w4, 7, "BOOKINGS", 1, 0, 'C', fill=True)
+            pdf.cell(w4, 7, "VISITS", 1, 0, 'C', fill=True)
+            pdf.cell(w4, 7, "CLOSED DEALS", 1, 1, 'C', fill=True)
+            
+            pdf.set_font("Helvetica", "", 12); pdf.set_text_color(0, 0, 0)
+            pdf.cell(w4, 9, str(page['num_chat']), 1, 0, 'C')
+            pdf.cell(w4, 9, str(page['online_booking']), 1, 0, 'C')
+            pdf.cell(w4, 9, str(page['visit']), 1, 0, 'C')
+            pdf.cell(w4, 9, str(page['close_deal']), 1, 1, 'C')
+            pdf.ln(2)
+            
+            # Row 2: Revenue
+            pdf.set_font("Helvetica", "B", 9); pdf.set_text_color(100); pdf.set_fill_color(245, 245, 245)
+            w3 = 63.3
+            pdf.cell(w3, 7, "PACKAGE COUNT", 1, 0, 'C', fill=True)
+            rev_label = "MONTHLY REVENUE" if is_monthly else "TODAY'S REVENUE"
+            pdf.cell(w3, 7, rev_label, 1, 0, 'C', fill=True)
+            pdf.cell(w3, 7, "TARGET GOAL", 1, 1, 'C', fill=True)
+            
+            pdf.set_font("Helvetica", "B", 12); pdf.set_text_color(*hlcc_blue)
+            pdf.cell(w3, 9, str(page['package_count']), 1, 0, 'C')
+            rev_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
+            pdf.cell(w3, 9, f"${rev_val:,.2f}", 1, 0, 'C')
+            pdf.cell(w3, 9, f"${page['target_amount']:,.2f}", 1, 1, 'C')
+            
+            # Conversion Rates Sub-table
+            pdf.ln(2)
+            pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(120)
+            pdf.cell(0, 5, "CONVERSION PERFORMANCE:", ln=True)
+            pdf.set_font("Helvetica", "", 9); pdf.set_text_color(50)
+            conv_text = f"Booking: {page['rate_booking']}%  |  Visit: {page['rate_visit']}%  |  Deal: {page['rate_close_deal']}%  |  Achieved: {page['rate_sale']}%"
+            pdf.cell(0, 6, conv_text, ln=True)
+            pdf.ln(8)
+
+        # ៥. Graph at the Bottom
+        # Check if enough space is left, otherwise add new page
+        if pdf.get_y() > 180: pdf.add_page()
+        
+        pdf.set_draw_color(200, 200, 200); pdf.set_line_width(0.2)
+        pdf.line(20, pdf.get_y(), 190, pdf.get_y())
         pdf.ln(5)
-
-        # ក្រាប Achievement
+        
         achieved_pct = [float(p['rate_sale']) for p in report_data['pages']]
         page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
-        plt.figure(figsize=(6, 3))
-        plt.bar(page_names, achieved_pct, color='#349dd8')
-        plt.ylabel('Achieved (%)', fontsize=10); plt.title('Sales Achievement by Page', fontsize=12)
-        plt.ylim(0, max(max(achieved_pct) + 10, 100))
+        
+        plt.figure(figsize=(7, 3.5))
+        bars = plt.bar(page_names, achieved_pct, color='#349dd8', width=0.5)
+        plt.ylabel('Achieved (%)', fontsize=10, fontweight='bold')
+        plt.title('SALES ACHIEVEMENT VS TARGET (%)', fontsize=12, fontweight='bold', pad=15)
+        plt.ylim(0, max(max(achieved_pct) + 15, 110))
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        
+        # Add values on top of bars
+        for bar in bars:
+            yval = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2, yval + 2, f'{yval}%', ha='center', va='bottom', fontweight='bold')
+
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
-            plt.savefig(tmpfile.name, format='png', bbox_inches='tight', dpi=100); chart_path = tmpfile.name
+            plt.savefig(tmpfile.name, format='png', bbox_inches='tight', dpi=120)
+            chart_path = tmpfile.name
         plt.close()
-        pdf.image(chart_path, x=10, y=35, w=100); pdf.ln(50)
+        
+        # Center the chart at bottom
+        pdf.image(chart_path, x=35, y=pdf.get_y() + 5, w=140)
         if os.path.exists(chart_path): os.remove(chart_path)
 
-        for page in report_data['pages']:
-            pdf.set_font("Helvetica", "B", 14); pdf.set_fill_color(*hlcc_blue); pdf.set_text_color(255, 255, 255)
-            pdf.cell(0, 10, f"  PAGE: {page['page_name'].upper()}", ln=True, fill=True)
-            pdf.ln(2)
-            pdf.set_font("Helvetica", "B", 10); pdf.set_text_color(*hlcc_grey); pdf.set_fill_color(240, 240, 240)
-            col_w = 47.5
-            pdf.cell(col_w, 8, "NUM CHAT", 1, 0, 'C', fill=True)
-            pdf.cell(col_w, 8, "BOOKING", 1, 0, 'C', fill=True)
-            pdf.cell(col_w, 8, "VISIT", 1, 0, 'C', fill=True)
-            pdf.cell(col_w, 8, "CLOSE DEAL", 1, 1, 'C', fill=True)
-            
-            pdf.set_font("Helvetica", "", 11); pdf.set_text_color(0, 0, 0)
-            pdf.cell(col_w, 8, str(page['num_chat']), 1, 0, 'C')
-            pdf.cell(col_w, 8, str(page['online_booking']), 1, 0, 'C')
-            pdf.cell(col_w, 8, str(page['visit']), 1, 0, 'C')
-            pdf.cell(col_w, 8, str(page['close_deal']), 1, 1, 'C')
-            pdf.ln(2)
-            pdf.set_font("Helvetica", "B", 10); pdf.set_fill_color(240, 240, 240); pdf.set_text_color(*hlcc_grey)
-            pdf.cell(63.3, 8, "PACKAGE COUNT", 1, 0, 'C', fill=True)
-            pdf.cell(63.3, 8, "MONTHLY REVENUE" if is_monthly else "DAILY REVENUE", 1, 0, 'C', fill=True)
-            pdf.cell(63.3, 8, "TARGET REVENUE", 1, 1, 'C', fill=True)
-            pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*hlcc_blue)
-            pdf.cell(63.3, 8, str(page['package_count']), 1, 0, 'C')
-            rev = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
-            pdf.cell(63.3, 8, f"${rev:,.2f}", 1, 0, 'C')
-            pdf.cell(63.3, 8, f"${page['target_amount']:,.2f}", 1, 1, 'C')
-            pdf.ln(4)
-
-        pdf.set_y(-20); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(150)
-        pdf.cell(0, 10, f"HLCC System Report - Generated: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
+        # Footer
+        pdf.set_y(-15); pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(150)
+        pdf.cell(0, 10, f"HLCC System - Confidential Report - Gen: {datetime.now(tz).strftime('%d/%m/%Y %H:%M')}", 0, 0, 'C')
         
         prefix = "HLCC_Monthly_Report" if is_monthly else "HLCC_Daily_Report"
         file_name = f"{prefix}_{report_data['search_key']}.pdf"
@@ -247,7 +302,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         if loading_msg_id: delete_message(target_chat_id, loading_msg_id)
 
 # ==========================================
-# Generate Text Report (Updated with Fixed Monospace)
+# Generate Text Report (As is)
 # ==========================================
 def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
     try:
@@ -265,10 +320,7 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
 
         if cache_key in report_cache:
             cached_msg = report_cache[cache_key]
-            if cached_msg == "EMPTY":
-                send_simple_message(target_chat_id, f"📭 មិនមានទិន្នន័យសម្រាប់ {today_for_display} ទេ។", keyboard)
-            else:
-                send_simple_message(target_chat_id, cached_msg, keyboard)
+            send_simple_message(target_chat_id, cached_msg, keyboard)
             return
 
         if not is_success or not report_data['has_data']:
@@ -277,30 +329,27 @@ def generate_and_send_report(requested_date_str, target_chat_id, is_monthly=Fals
             return
         
         report_type = "Monthly" if is_monthly else "Daily"
-        message = f"<b>HLCC – {report_type} Performance Report</b>\n"
+        message = f"<b>HLCC – {report_type.upper()} PERFORMANCE REPORT</b>\n"
+        message += f"📅 Period: {today_for_display}\n\n"
+        
         for page in report_data['pages']:
-            p_name = page['page_name'].replace(" Page", "")
-            message += f"📅 Period: {today_for_display} | 🌐 Page: {p_name}\n\n"
-            
-            message += "📈 <b>Activity Summary</b>\n"
-            message += f"• 💬 Total chats: <code>{page['num_chat']:<4}</code>\n"
-            message += f"• 📅 Bookings:    <code>{page['online_booking']:<4}</code>\n"
-            message += f"• 📍 Visits:      <code>{page['visit']:<4}</code>\n"
-            message += f"• ✅ Closed deals: <code>{page['close_deal']:<4}</code>\n"
-            
+            p_name = page['page_name'].replace(" Page", "").upper()
+            message += f"🌐 <b>PAGE: {p_name}</b>\n----------------------------\n"
+            message += "<b>Activity Summary</b>\n"
+            message += f"Total chats:   <code>{page['num_chat']:<6}</code>\n"
+            message += f"Bookings:      <code>{page['online_booking']:<6}</code>\n"
+            message += f"Visits:        <code>{page['visit']:<6}</code>\n"
+            message += f"Closed deals:  <code>{page['close_deal']:<6}</code>\n"
             sale_val = page['total_sale_monthly'] if is_monthly else page['total_sale_today']
-            sale_label = "Monthly" if is_monthly else "Today’s"
-            message += f"• 💰 {sale_label} sales: <code>${sale_val:,.2f}</code>\n\n"
-            
-            message += "🔄 <b>Conversion Rates</b>\n"
-            message += f"📅 Booking: <code>{page['rate_booking']}%</code> | 📍 Visit: <code>{page['rate_visit']}%</code>\n"
-            message += f"✅ Deal:    <code>{page['rate_close_deal']}%</code> | 📦 Package: <code>{page['rate_package']}%</code>\n\n"
-            
-            message += "🎯 <b>Monthly Target</b>\n"
-            message += f"🏆 Goal:     <code>${page['target_amount']:,.2f}</code>\n"
-            message += f"💵 Actual:   <code>${page['total_sale_monthly']:,.2f}</code>\n"
-            message += f"📊 Achieved: <b><code>{page['rate_sale']}%</code></b>\n"
-            message += "====================\n\n"
+            sale_label = "Monthly sales" if is_monthly else "Today's sales"
+            message += f"{sale_label}: <code>${sale_val:,.2f}</code>\n\n"
+            message += "<b>Conversion Rates</b>\n"
+            message += f"Booking: <code>{page['rate_booking']}%</code> | Visit: <code>{page['rate_visit']}%</code>\n"
+            message += f"Deal:    <code>{page['rate_close_deal']}%</code> | Pkg:   <code>{page['rate_package']}%</code>\n\n"
+            message += "<b>Target Status</b>\n"
+            message += f"Goal:     <code>${page['target_amount']:,.2f}</code>\n"
+            message += f"Actual:   <code>${page['total_sale_monthly']:,.2f}</code>\n"
+            message += f"Achieved: <b><code>{page['rate_sale']}%</code></b>\n============================\n\n"
         
         message += "Thank you 😊"
         report_cache[cache_key] = message
@@ -317,10 +366,7 @@ def webhook():
     if not update: return jsonify({"status": "ok"})
     if "callback_query" in update:
         cb = update["callback_query"]
-        chat_id, data = cb["message"]["chat"]["id"], cb["data"]
-        # ចាប់យក Message ID នៃផ្ទាំង Menu ដែលកំពុងបញ្ជា
-        current_msg_id = cb["message"]["message_id"]
-        
+        chat_id, data, current_msg_id = cb["message"]["chat"]["id"], cb["data"], cb["message"]["message_id"]
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
         
         if data == 'ask_monthly_report':
@@ -331,21 +377,17 @@ def webhook():
                 curr.append({"text": months[i], "callback_data": f"mreport_{year}-{i+1:02d}"})
                 if len(curr) == 3 or i == 11: rows.append(curr); curr = []
             send_simple_message(chat_id, f"📊 សូមជ្រើសរើស <b>ខែ</b> ៖", {"inline_keyboard": rows})
-            
         elif data.startswith('mreport_'):
-            # លុបផ្ទាំងជ្រើសរើសខែ ចោលបន្ទាប់ពីជ្រើសរើសរួច
             delete_message(chat_id, current_msg_id)
             sel_month = data.replace('mreport_', '')
             resp = send_simple_message(chat_id, f"⏳ កំពុងគណនាទិន្នន័យសរុបប្រចាំខែ <b>{sel_month}</b> ...")
             loading_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
             threading.Thread(target=generate_and_send_report, args=(sel_month, chat_id, True, loading_id)).start()
-
         elif data.startswith('mpdf_'):
             sel_month = data.replace('mpdf_', '')
             resp = send_simple_message(chat_id, f"📥 កំពុងបង្កើត Monthly PDF Dashboard សម្រាប់ខែ <b>{sel_month}</b> ...")
             loading_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
             threading.Thread(target=generate_and_send_pdf, args=(sel_month, chat_id, True, loading_id)).start()
-
         elif data == 'ask_specific_date' or data == 'back_to_months':
             year = datetime.now(tz).year
             months = ["មករា (Jan)", "កុម្ភៈ (Feb)", "មីនា (Mar)", "មេសា (Apr)", "ឧសភា (May)", "មិថុនា (Jun)", "កក្កដា (Jul)", "សីហា (Aug)", "កញ្ញា (Sep)", "តុលា (Oct)", "វិច្ឆិកា (Nov)", "ធ្នូ (Dec)"]
@@ -354,9 +396,7 @@ def webhook():
                 curr.append({"text": months[i], "callback_data": f"month_{year}-{i+1:02d}"})
                 if len(curr) == 3 or i == 11: rows.append(curr); curr = []
             send_simple_message(chat_id, f"📅 សូមជ្រើសរើស <b>ខែ</b> ៖", {"inline_keyboard": rows})
-
         elif data.startswith('month_'):
-            # លុបផ្ទាំងជ្រើសរើសខែ (សម្រាប់ Daily) ចោលបន្ទាប់ពីជ្រើសរើសរួច
             delete_message(chat_id, current_msg_id)
             sel_month = data.replace('month_', '')
             y, m = map(int, sel_month.split('-'))
@@ -367,15 +407,12 @@ def webhook():
                 if len(curr) == 5 or i == days: rows.append(curr); curr = []
             rows.append([{"text": "⬅️ ត្រឡប់ក្រោយ (Back)", "callback_data": "back_to_months"}])
             send_simple_message(chat_id, f"📅 សូមជ្រើសរើស <b>ថ្ងៃទី</b> សម្រាប់ខែ {sel_month} ៖", {"inline_keyboard": rows})
-
         elif data.startswith('report_'):
-            # លុបផ្ទាំងជ្រើសរើសថ្ងៃទី ចោលបន្ទាប់ពីជ្រើសរើសរួច
             delete_message(chat_id, current_msg_id)
             sel_date = data.replace('report_', '')
             resp = send_simple_message(chat_id, f"⏳ កំពុងស្វែងរកទិន្នន័យសម្រាប់ថ្ងៃ <b>{sel_date}</b> ...")
             loading_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
             threading.Thread(target=generate_and_send_report, args=(sel_date, chat_id, False, loading_id)).start()
-
         elif data.startswith('pdf_'):
             sel_date = data.replace('pdf_', '')
             resp = send_simple_message(chat_id, f"📥 កំពុងបង្កើតឯកសារ PDF សម្រាប់ថ្ងៃ <b>{sel_date}</b> ...")
