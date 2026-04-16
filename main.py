@@ -128,8 +128,10 @@ def fetch_report_data(target_date, is_monthly=False):
             try:
                 data = worksheet.get_all_values()
                 if len(data) > 4:
-                    target_str = str(data[2][0]) if len(data[2]) > 0 else "0"
+                    # ផ្លាស់ប្តូរការទាញ Target ទៅកាន់ Row ទី 2 (Index 1) តាមការស្នើសុំ
+                    target_str = str(data[1][0]) if len(data[1]) > 0 else "0"
                     target_amount = clean_currency(target_str)
+                    
                     for i in range(4, len(data)):
                         row = data[i]
                         if len(row) < 2 or not row[1]: continue
@@ -197,7 +199,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         logo_path = 'logo.png'
         bg_path = 'BG.png'
 
-        # 1. Background Rendering (Fixed for Mi Browser)
         if os.path.exists(bg_path):
             try:
                 with Image.open(bg_path) as img:
@@ -211,7 +212,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
                         os.remove(tmp_bg.name)
             except: pass
         
-        # 2. Executive Header
         if os.path.exists(logo_path):
             logo_w = 58 
             pdf.image(logo_path, x=(pdf_w - logo_w)/2, y=12, w=logo_w)
@@ -232,7 +232,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.line(20, pdf.get_y() + 4, 190, pdf.get_y() + 4)
         pdf.ln(12)
 
-        # 3. Cards Layout
         for page in report_data['pages']:
             x_start, y_start = 15, pdf.get_y()
             pdf.set_fill_color(255, 255, 255)
@@ -346,7 +345,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             os.remove(tmp_c.name)
         plt.close()
         
-        # 5. FOOTER AREA (QR and Credit Centered at the bottom)
+        # 5. FOOTER AREA
         footer_base_y = 635 
         
         qr = qrcode.QRCode(version=1, border=1, box_size=10)
@@ -375,12 +374,10 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.set_text_color(156, 163, 175)
         pdf.cell(0, 4, f"Powered by OTO Messages  |  Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", ln=True, align="C")
         
-        # កែឈ្មោះ File ទៅជា "HLCC Page Report" តាមការស្នើសុំ
         f_n = f"HLCC Page Report - {report_data['search_key']}.pdf"
         f_p = os.path.join(tempfile.gettempdir(), f_n)
         pdf.output(f_p)
         
-        # ផ្ញើ Keyboard ដែលបំបែកជួររួចរាល់
         keyboard = {"inline_keyboard": [
             [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}],
             [{"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
@@ -416,7 +413,6 @@ def webhook():
         chat_id = msg["chat"]["id"]
         
         if text.startswith("/start"):
-            # Keyboard បំបែកជួរ
             kb = {"inline_keyboard": [
                 [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}],
                 [{"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
