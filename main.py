@@ -128,10 +128,8 @@ def fetch_report_data(target_date, is_monthly=False):
             try:
                 data = worksheet.get_all_values()
                 if len(data) > 4:
-                    # ផ្លាស់ប្តូរការទាញ Target ទៅកាន់ Row ទី 2 (Index 1) តាមការស្នើសុំ
-                    target_str = str(data[1][0]) if len(data[1]) > 0 else "0"
+                    target_str = str(data[2][0]) if len(data[2]) > 0 else "0"
                     target_amount = clean_currency(target_str)
-                    
                     for i in range(4, len(data)):
                         row = data[i]
                         if len(row) < 2 or not row[1]: continue
@@ -179,7 +177,8 @@ def fetch_report_data(target_date, is_monthly=False):
 # ==========================================
 # Premium Style PDF Design
 # ==========================================
-def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None):
+# ADDED parameter mention_tag
+def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None, mention_tag=None):
     try:
         try: target_date = parser.parse(requested_date_str)
         except: return
@@ -310,7 +309,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
                 
             pdf.ln(10)
 
-        # 4. Chart Section
         pdf.ln(8)
         pdf.set_font("Helvetica", "B", 14)
         pdf.set_text_color(*PRIMARY_BLUE)
@@ -345,9 +343,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             os.remove(tmp_c.name)
         plt.close()
         
-        # 5. FOOTER AREA
         footer_base_y = 635 
-        
         qr = qrcode.QRCode(version=1, border=1, box_size=10)
         qr.add_data("https://t.me/OUDOM333")
         qr.make(fit=True)
@@ -378,14 +374,19 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         f_p = os.path.join(tempfile.gettempdir(), f_n)
         pdf.output(f_p)
         
+        # ផ្ញើ Keyboard ដែលបំបែកជួររួចរាល់
         keyboard = {"inline_keyboard": [
             [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}],
             [{"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
             [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]
         ]}
         
-        send_document(target_chat_id, f_p, f"💎 <b>HLCC Executive Dashboard</b>\n📅 {report_data['display_date']}", thumb_path=logo_path)
-        send_simple_message(target_chat_id, "✅ Report generated successfully.", keyboard)
+        # បង្កើត Caption សម្រាប់ឯកសារ PDF (បញ្ចូលការ Mention ប្រសិនបើមាន)
+        caption_text = f"💎 <b>HLCC Executive Dashboard</b>\n📅 {report_data['display_date']}"
+        if mention_tag:
+            caption_text += f"\n👤 <b>Requested by:</b> {mention_tag}"
+            
+        send_document(target_chat_id, f_p, caption_text, thumb_path=logo_path)
         os.remove(f_p)
     finally:
         if loading_msg_id: 
@@ -426,6 +427,14 @@ def webhook():
         chat_id = cb["message"]["chat"]["id"]
         data = cb["data"]
         c_m_id = cb["message"]["message_id"]
+        
+        # ទាញយកព័ត៌មានអ្នកដែលបានចុចប៊ូតុង
+        user = cb.get("from", {})
+        user_id = user.get("id", "")
+        first_name = user.get("first_name", "User")
+        # បង្កើត HTML Tag សម្រាប់ Mention គាត់
+        mention_tag = f'<a href="tg://user?id={user_id}">{first_name}</a>'
+        
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
         
         if data == 'ask_monthly_report':
@@ -442,9 +451,11 @@ def webhook():
         elif data.startswith('mreport_'):
             delete_message(chat_id, c_m_id)
             sel_month = data.replace('mreport_', '')
-            resp = send_simple_message(chat_id, f"⏳ Generating Monthly PDF for <b>{sel_month}</b> ...")
+            # Mention គាត់នៅក្នុងសារ Loading
+            resp = send_simple_message(chat_id, f"⏳ {mention_tag}, Generating Monthly PDF for <b>{sel_month}</b> ...")
             l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
-            threading.Thread(target=generate_and_send_pdf, args=(sel_month, chat_id, True, l_id)).start()
+            # បញ្ជូន mention_tag ទៅឱ្យ Function បង្កើត PDF
+            threading.Thread(target=generate_and_send_pdf, args=(sel_month, chat_id, True, l_id, mention_tag)).start()
             
         elif data == 'ask_specific_date' or data == 'back_to_months':
             months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -474,9 +485,11 @@ def webhook():
         elif data.startswith('report_'):
             delete_message(chat_id, c_m_id)
             sel_date = data.replace('report_', '')
-            resp = send_simple_message(chat_id, f"⏳ Generating Daily PDF for <b>{sel_date}</b> ...")
+            # Mention គាត់នៅក្នុងសារ Loading
+            resp = send_simple_message(chat_id, f"⏳ {mention_tag}, Generating Daily PDF for <b>{sel_date}</b> ...")
             l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
-            threading.Thread(target=generate_and_send_pdf, args=(sel_date, chat_id, False, l_id)).start()
+            # បញ្ជូន mention_tag ទៅឱ្យ Function បង្កើត PDF
+            threading.Thread(target=generate_and_send_pdf, args=(sel_date, chat_id, False, l_id, mention_tag)).start()
             
     return jsonify({"status": "ok"})
 
