@@ -57,7 +57,8 @@ def delete_message(chat_id, message_id):
     payload = {"chat_id": chat_id, "message_id": message_id}
     telegram_api("deleteMessage", payload)
 
-def send_document(chat_id, file_path, caption, thumb_path=None):
+# ថែមមុខងារឱ្យ send_document អាចភ្ជាប់ប៊ូតុងបាន
+def send_document(chat_id, file_path, caption, thumb_path=None, reply_markup=None):
     f_doc = open(file_path, 'rb')
     files = {'document': (os.path.basename(file_path), f_doc, 'application/pdf')}
     f_thumb = None
@@ -65,7 +66,13 @@ def send_document(chat_id, file_path, caption, thumb_path=None):
         f_thumb = open(thumb_path, 'rb')
         files['thumbnail'] = (os.path.basename(thumb_path), f_thumb, 'image/png')
         
-    payload = {'files': files, 'data': {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}}
+    data_payload = {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}
+    
+    # បម្លែងប៊ូតុងទៅជា JSON String សម្រាប់ការផ្ញើ File
+    if reply_markup:
+        data_payload['reply_markup'] = json.dumps(reply_markup)
+        
+    payload = {'files': files, 'data': data_payload}
     try: 
         return telegram_api("sendDocument", payload, is_multipart=True, timeout=120)
     finally:
@@ -127,10 +134,19 @@ def fetch_report_data(target_date, is_monthly=False):
         if worksheet:
             try:
                 data = worksheet.get_all_values()
-                if len(data) > 4:
-                    target_str = str(data[2][0]) if len(data[2]) > 0 else "0"
-                    target_amount = clean_currency(target_str)
-                    for i in range(4, len(data)):
+                if len(data) > 2:
+                    for r_idx in range(min(10, len(data))):
+                        if len(data[r_idx]) > 0 and 'TARGET' in str(data[r_idx][0]).upper():
+                            target_amount = clean_currency(str(data[r_idx][0]))
+                            break
+                            
+                    data_start_idx = 3 
+                    for r_idx in range(min(10, len(data))):
+                        if len(data[r_idx]) > 1 and str(data[r_idx][1]).strip().upper() == 'DATE':
+                            data_start_idx = r_idx + 1 
+                            break
+
+                    for i in range(data_start_idx, len(data)):
                         row = data[i]
                         if len(row) < 2 or not row[1]: continue
                         str_date = str(row[1]).strip()
@@ -177,7 +193,6 @@ def fetch_report_data(target_date, is_monthly=False):
 # ==========================================
 # Premium Style PDF Design
 # ==========================================
-# ADDED parameter mention_tag
 def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, loading_msg_id=None, mention_tag=None):
     try:
         try: target_date = parser.parse(requested_date_str)
@@ -374,19 +389,20 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         f_p = os.path.join(tempfile.gettempdir(), f_n)
         pdf.output(f_p)
         
-        # ផ្ញើ Keyboard ដែលបំបែកជួររួចរាល់
+        # បន្ថែមប៊ូតុង ❌ Delete ភ្ជាប់ជាមួយ PDF
         keyboard = {"inline_keyboard": [
             [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}],
             [{"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
-            [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}]
+            [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}],
+            [{"text": "❌ Delete Report", "callback_data": "delete_msg"}]
         ]}
         
-        # បង្កើត Caption សម្រាប់ឯកសារ PDF (បញ្ចូលការ Mention ប្រសិនបើមាន)
         caption_text = f"💎 <b>HLCC Executive Dashboard</b>\n📅 {report_data['display_date']}"
         if mention_tag:
             caption_text += f"\n👤 <b>Requested by:</b> {mention_tag}"
             
-        send_document(target_chat_id, f_p, caption_text, thumb_path=logo_path)
+        # ផ្ញើ PDF ភ្ជាប់ជាមួយនឹង keyboard
+        send_document(target_chat_id, f_p, caption_text, thumb_path=logo_path, reply_markup=keyboard)
         os.remove(f_p)
     finally:
         if loading_msg_id: 
@@ -428,16 +444,19 @@ def webhook():
         data = cb["data"]
         c_m_id = cb["message"]["message_id"]
         
-        # ទាញយកព័ត៌មានអ្នកដែលបានចុចប៊ូតុង
         user = cb.get("from", {})
         user_id = user.get("id", "")
         first_name = user.get("first_name", "User")
-        # បង្កើត HTML Tag សម្រាប់ Mention គាត់
         mention_tag = f'<a href="tg://user?id={user_id}">{first_name}</a>'
         
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
         
-        if data == 'ask_monthly_report':
+        # មុខងារលុបសារពេលចុចប៊ូតុង Delete
+        if data == 'delete_msg':
+            delete_message(chat_id, c_m_id)
+            return jsonify({"status": "ok"})
+            
+        elif data == 'ask_monthly_report':
             months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
             rows, curr = [], []
             year = datetime.now(tz).year
@@ -451,10 +470,8 @@ def webhook():
         elif data.startswith('mreport_'):
             delete_message(chat_id, c_m_id)
             sel_month = data.replace('mreport_', '')
-            # Mention គាត់នៅក្នុងសារ Loading
             resp = send_simple_message(chat_id, f"⏳ {mention_tag}, Generating Monthly PDF for <b>{sel_month}</b> ...")
             l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
-            # បញ្ជូន mention_tag ទៅឱ្យ Function បង្កើត PDF
             threading.Thread(target=generate_and_send_pdf, args=(sel_month, chat_id, True, l_id, mention_tag)).start()
             
         elif data == 'ask_specific_date' or data == 'back_to_months':
@@ -485,10 +502,8 @@ def webhook():
         elif data.startswith('report_'):
             delete_message(chat_id, c_m_id)
             sel_date = data.replace('report_', '')
-            # Mention គាត់នៅក្នុងសារ Loading
             resp = send_simple_message(chat_id, f"⏳ {mention_tag}, Generating Daily PDF for <b>{sel_date}</b> ...")
             l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
-            # បញ្ជូន mention_tag ទៅឱ្យ Function បង្កើត PDF
             threading.Thread(target=generate_and_send_pdf, args=(sel_date, chat_id, False, l_id, mention_tag)).start()
             
     return jsonify({"status": "ok"})
