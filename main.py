@@ -389,7 +389,6 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         f_p = os.path.join(tempfile.gettempdir(), f_n)
         pdf.output(f_p)
         
-        # បន្ថែមប៊ូតុង ❌ Delete ភ្ជាប់ជាមួយ PDF
         keyboard = {"inline_keyboard": [
             [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}],
             [{"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
@@ -401,12 +400,16 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         if mention_tag:
             caption_text += f"\n👤 <b>Requested by:</b> {mention_tag}"
             
-        # ផ្ញើ PDF ភ្ជាប់ជាមួយនឹង keyboard
         send_document(target_chat_id, f_p, caption_text, thumb_path=logo_path, reply_markup=keyboard)
         os.remove(f_p)
     finally:
         if loading_msg_id: 
             delete_message(target_chat_id, loading_msg_id)
+
+# បន្ថែម Route ថ្មីសម្រាប់ឱ្យ Apps Script បញ្ជាដាស់ Render (Keep Awake)
+@app.route('/ping', methods=['GET'])
+def ping():
+    return jsonify({"status": "awake", "time": datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')})
 
 @app.route('/api/trigger', methods=['POST'])
 def trigger_api():
@@ -451,7 +454,6 @@ def webhook():
         
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
         
-        # មុខងារលុបសារពេលចុចប៊ូតុង Delete
         if data == 'delete_msg':
             delete_message(chat_id, c_m_id)
             return jsonify({"status": "ok"})
