@@ -57,7 +57,15 @@ def delete_message(chat_id, message_id):
     payload = {"chat_id": chat_id, "message_id": message_id}
     telegram_api("deleteMessage", payload)
 
-# ថែមមុខងារឱ្យ send_document អាចភ្ជាប់ប៊ូតុងបាន
+# មុខងារថ្មី សម្រាប់ផ្លាស់ប្តូរប៊ូតុង (Edit Inline Keyboard)
+def edit_reply_markup(chat_id, message_id, reply_markup):
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "reply_markup": reply_markup
+    }
+    return telegram_api("editMessageReplyMarkup", payload)
+
 def send_document(chat_id, file_path, caption, thumb_path=None, reply_markup=None):
     f_doc = open(file_path, 'rb')
     files = {'document': (os.path.basename(file_path), f_doc, 'application/pdf')}
@@ -68,7 +76,6 @@ def send_document(chat_id, file_path, caption, thumb_path=None, reply_markup=Non
         
     data_payload = {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}
     
-    # បម្លែងប៊ូតុងទៅជា JSON String សម្រាប់ការផ្ញើ File
     if reply_markup:
         data_payload['reply_markup'] = json.dumps(reply_markup)
         
@@ -91,7 +98,9 @@ def get_google_sheet():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         return client.open_by_key(SPREADSHEET_ID)
-    except: return None
+    except Exception as e:
+        print(f"Sheet Auth Error: {e}")
+        return None
 
 def clean_currency(value):
     if not value: return 0.0
@@ -134,45 +143,55 @@ def fetch_report_data(target_date, is_monthly=False):
         if worksheet:
             try:
                 data = worksheet.get_all_values()
-                if len(data) > 2:
-                    for r_idx in range(min(10, len(data))):
-                        if len(data[r_idx]) > 0 and 'TARGET' in str(data[r_idx][0]).upper():
-                            target_amount = clean_currency(str(data[r_idx][0]))
-                            break
-                            
-                    data_start_idx = 3 
-                    for r_idx in range(min(10, len(data))):
-                        if len(data[r_idx]) > 1 and str(data[r_idx][1]).strip().upper() == 'DATE':
-                            data_start_idx = r_idx + 1 
+                
+                # Dynamic Search for Header and Target
+                target_row_idx = -1
+                header_row_idx = -1
+                
+                for r_idx in range(min(20, len(data))):
+                    row_str = " ".join([str(cell).upper() for cell in data[r_idx]])
+                    if 'TARGET' in row_str:
+                        target_row_idx = r_idx
+                    if 'DATE' in row_str and header_row_idx == -1:
+                        header_row_idx = r_idx
+                        
+                if target_row_idx != -1:
+                    for cell in data[target_row_idx]:
+                        if 'TARGET' in str(cell).upper():
+                            target_amount = clean_currency(str(cell))
                             break
 
-                    for i in range(data_start_idx, len(data)):
-                        row = data[i]
-                        if len(row) < 2 or not row[1]: continue
-                        str_date = str(row[1]).strip()
-                        is_match_day = is_match_month = False
-                        p_date = parse_date_flexible(str_date)
-                        if p_date:
-                            if p_date.year == target_y and p_date.month == target_m:
-                                is_match_month = True
-                                if p_date.day == target_d: is_match_day = True
-                        else:
-                            if today_month_search in str_date: is_match_month = True
-                            if today_for_search in str_date: is_match_day = True
-                        
-                        row_val = clean_currency(row[7]) if len(row) > 7 else 0.0
-                        if is_match_month: 
-                            total_sale_monthly += row_val
-                        
-                        row_match = is_match_month if is_monthly else is_match_day
-                        if row_match:
-                            num_chat += 1
-                            total_sale_today += row_val
-                            if len(row) > 9 and is_true(row[9]): online_booking += 1
-                            if len(row) > 10 and is_true(row[10]): visit += 1
-                            if len(row) > 11 and is_true(row[11]): package_count += 1
-                            if len(row) > 12 and is_true(row[12]): close_deal += 1
-            except: pass
+                data_start_idx = header_row_idx + 1 if header_row_idx != -1 else 3
+
+                for i in range(data_start_idx, len(data)):
+                    row = data[i]
+                    if len(row) < 2 or not row[1]: continue
+                    str_date = str(row[1]).strip()
+                    is_match_day = is_match_month = False
+                    
+                    p_date = parse_date_flexible(str_date)
+                    if p_date:
+                        if p_date.year == target_y and p_date.month == target_m:
+                            is_match_month = True
+                            if p_date.day == target_d: is_match_day = True
+                    else:
+                        if today_month_search in str_date: is_match_month = True
+                        if today_for_search in str_date: is_match_day = True
+                    
+                    row_val = clean_currency(row[7]) if len(row) > 7 else 0.0
+                    if is_match_month: 
+                        total_sale_monthly += row_val
+                    
+                    row_match = is_match_month if is_monthly else is_match_day
+                    if row_match:
+                        num_chat += 1
+                        total_sale_today += row_val
+                        if len(row) > 8 and is_true(row[8]): online_booking += 1
+                        if len(row) > 9 and is_true(row[9]): visit += 1
+                        if len(row) > 10 and is_true(row[10]): package_count += 1
+                        if len(row) > 11 and is_true(row[11]): close_deal += 1
+            except Exception as e: 
+                print(f"Error parsing page {page_name}: {e}")
 
         pages_data.append({
             "page_name": page_name, "num_chat": num_chat, "online_booking": online_booking, 
@@ -186,7 +205,7 @@ def fetch_report_data(target_date, is_monthly=False):
             "rate_sale": f"{(total_sale_monthly / target_amount) * 100:.2f}" if target_amount > 0 else "0.00"
         })
     
-    return {"display_date": target_date.strftime("%B %d, %Y") if not is_monthly else target_date.strftime("%B %Y"), 
+    return {"display_date": target_date.strftime("%d/%m/%Y") if not is_monthly else target_date.strftime("%m/%Y"), 
             "search_key": today_month_search if is_monthly else today_for_search,
             "has_data": True, "pages": pages_data}, True
 
@@ -200,7 +219,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         report_data, is_success = fetch_report_data(target_date, is_monthly)
         if not is_success: return
         
-        pdf_w, pdf_h = 210, 680
+        pdf_w, pdf_h = 210, 650
         pdf = FPDF(orientation='P', unit='mm', format=(pdf_w, pdf_h)) 
         pdf.set_auto_page_break(auto=False)
         pdf.add_page()
@@ -213,33 +232,37 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         logo_path = 'logo.png'
         bg_path = 'BG.png'
 
-        if os.path.exists(bg_path):
-            try:
-                with Image.open(bg_path) as img:
-                    img = img.convert("RGBA")
-                    alpha = img.split()[3]
-                    alpha = alpha.point(lambda p: p * 0.08) 
-                    img.putalpha(alpha)
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_bg:
-                        img.save(tmp_bg.name)
-                        pdf.image(tmp_bg.name, x=0, y=0, w=pdf_w, h=pdf_h)
-                        os.remove(tmp_bg.name)
-            except: pass
-        
+        with pdf.local_context(fill_opacity=0.08):
+            if os.path.exists(bg_path):
+                try:
+                    with Image.open(bg_path) as img:
+                        img = img.convert("RGBA")
+                        data = img.getdata()
+                        newData = []
+                        for item in data:
+                            if item[3] > 0: newData.append((item[0], item[1], item[2], int(item[3] * 0.5)))
+                            else: newData.append(item)
+                        img.putdata(newData)
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_bg:
+                            img.save(tmp_bg.name, "PNG")
+                            pdf.image(tmp_bg.name, x=0, y=0, w=pdf_w, h=pdf_h)
+                            os.remove(tmp_bg.name)
+                except Exception as e: print("BG Error:", e)
+
         if os.path.exists(logo_path):
-            logo_w = 58 
+            logo_w = 52
             pdf.image(logo_path, x=(pdf_w - logo_w)/2, y=12, w=logo_w)
-            pdf.set_y(70)
+            pdf.set_y(65)
         else: 
             pdf.set_y(25)
 
-        pdf.set_font("Helvetica", "B", 18)
+        pdf.set_font("Helvetica", "B", 16)
         pdf.set_text_color(*PRIMARY_BLUE)
         pdf.cell(0, 8, "HLCC INNOVATIVE BEAUTY CENTER", ln=True, align="C")
-        pdf.set_font("Helvetica", "", 11)
+        pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(*TEXT_MUTED)
         title_type = "MONTHLY EXECUTIVE SUMMARY" if is_monthly else "DAILY PERFORMANCE REPORT"
-        pdf.cell(0, 6, f"{title_type}  |  {report_data['display_date'].upper()}", ln=True, align="C")
+        pdf.cell(0, 6, f"{title_type} | {report_data['display_date'].upper()}", ln=True, align="C")
         
         pdf.set_draw_color(229, 231, 235)
         pdf.set_line_width(0.5)
@@ -310,7 +333,7 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             pdf.set_xy(x_start + 8, pdf.get_y())
             pdf.cell(85, 5, "", ln=False)
             pdf.set_font("Helvetica", "B", 8)
-            pdf.cell(28, 5, f"Achieved: {page['rate_sale']}%", ln=False)
+            pdf.cell(30, 5, f"Achieved: {page['rate_sale']}%", ln=False)
             
             bar_x, bar_y = pdf.get_x() + 2, pdf.get_y() + 1.2
             pdf.set_fill_color(243, 244, 246)
@@ -327,44 +350,44 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.ln(8)
         pdf.set_font("Helvetica", "B", 14)
         pdf.set_text_color(*PRIMARY_BLUE)
-        pdf.cell(0, 10, "ACHIEVEMENT OVERVIEW (%)", ln=True, align="C")
+        pdf.cell(0, 10, "ACHIEVEMENT OVERVIEW", ln=True, align="C")
         
         achieved_pct = [float(p['rate_sale']) for p in report_data['pages']]
         achieved_str = [p['rate_sale'] for p in report_data['pages']]
         page_names = [p['page_name'].replace(" Page", "") for p in report_data['pages']]
         
-        plt.figure(figsize=(9, 4.2))
+        plt.figure(figsize=(9, 4.5))
         ax = plt.gca()
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_color('#E5E7EB')
+        ax.spines['left'].set_visible(False)
         ax.spines['bottom'].set_color('#E5E7EB')
         
-        bars = plt.bar(page_names, achieved_pct, color='#3B82F6', alpha=0.85, width=0.5)
-        plt.axhline(y=100, color='#10B981', linestyle='--', alpha=0.6, linewidth=1.2)
-        plt.text(-0.45, 102, 'Goal 100%', color='#10B981', fontsize=7, fontweight='bold')
+        bars = plt.bar(page_names, achieved_pct, color='#3B82F6', alpha=0.9, width=0.4)
+        plt.axhline(y=100, color='#10B981', linestyle='--', alpha=0.8, linewidth=1.5)
+        plt.text(-0.4, 102, 'Goal (100%)', color='#10B981', fontsize=8, fontweight='bold')
         
-        plt.ylabel('Target Achieved (%)', fontsize=9, color='#6B7280')
-        plt.ylim(0, max(max(achieved_pct) + 25, 120))
-        plt.grid(axis='y', linestyle='-', alpha=0.3, color='#E5E7EB')
+        plt.ylabel('Target Achieved (%)', fontsize=9, color='#6B7280', labelpad=10)
+        plt.ylim(0, max(max(achieved_pct) + 25, 110))
+        plt.grid(axis='y', linestyle='-', alpha=0.2, color='#E5E7EB')
         
         for bar, rate_str in zip(bars, achieved_str):
             h = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2, h + 3, f'{rate_str}%', ha='center', va='bottom', fontsize=8, fontweight='bold', color='#1E40AF')
+            plt.text(bar.get_x() + bar.get_width()/2, h + 2, f'{rate_str}%', ha='center', va='bottom', fontsize=8, fontweight='bold', color='#1E40AF')
         
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_c:
-            plt.savefig(tmp_c.name, format='png', transparent=True, dpi=200, bbox_inches='tight')
-            pdf.image(tmp_c.name, x=20, y=pdf.get_y(), w=170)
+            plt.savefig(tmp_c.name, format='png', transparent=True, dpi=300, bbox_inches='tight')
+            pdf.image(tmp_c.name, x=15, y=pdf.get_y(), w=180)
             os.remove(tmp_c.name)
         plt.close()
         
-        footer_base_y = 635 
-        qr = qrcode.QRCode(version=1, border=1, box_size=10)
+        footer_base_y = 615 
+        qr = qrcode.QRCode(version=1, border=2, box_size=10)
         qr.add_data("https://t.me/OUDOM333")
         qr.make(fit=True)
         img_qr = qr.make_image(fill_color="#1F2937", back_color="white").convert('RGB')
         
-        qr_w = 18
+        qr_w = 20
         qr_x = (pdf_w - qr_w) / 2 
         qr_y = footer_base_y
         
@@ -378,22 +401,20 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
         pdf.set_y(qr_y + qr_w + 2)
         pdf.set_font("Helvetica", "B", 7)
         pdf.set_text_color(*PRIMARY_BLUE)
-        pdf.cell(0, 4, "SCAN TO CONTACT DEVELOPER: @OUDOM333", ln=True, align="C")
+        pdf.cell(0, 4, "SCAN FOR HELP & SUPPORT", ln=True, align="C")
         
-        pdf.set_y(pdf.get_y() + 1)
+        pdf.set_y(pdf.get_y() + 2)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(156, 163, 175)
-        pdf.cell(0, 4, f"Powered by OTO Messages  |  Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", ln=True, align="C")
+        pdf.cell(0, 4, f"Powered by OTO Messages | Generated on {datetime.now(tz).strftime('%d %b %Y, %H:%M')}", ln=True, align="C")
         
         f_n = f"HLCC Page Report - {report_data['search_key']}.pdf"
         f_p = os.path.join(tempfile.gettempdir(), f_n)
         pdf.output(f_p)
         
+        # ប្រើប៊ូតុង Menu តែមួយគត់នៅពេលផ្ញើ PDF លើកដំបូង
         keyboard = {"inline_keyboard": [
-            [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}],
-            [{"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
-            [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}],
-            [{"text": "❌ Delete Report", "callback_data": "delete_msg"}]
+            [{"text": "≡ Menu", "callback_data": "show_main_menu"}]
         ]}
         
         caption_text = f"💎 <b>HLCC Executive Dashboard</b>\n📅 {report_data['display_date']}"
@@ -402,11 +423,12 @@ def generate_and_send_pdf(requested_date_str, target_chat_id, is_monthly=False, 
             
         send_document(target_chat_id, f_p, caption_text, thumb_path=logo_path, reply_markup=keyboard)
         os.remove(f_p)
+    except Exception as e:
+        print("PDF Gen Error:", e)
     finally:
         if loading_msg_id: 
             delete_message(target_chat_id, loading_msg_id)
 
-# បន្ថែម Route ថ្មីសម្រាប់ឱ្យ Apps Script បញ្ជាដាស់ Render (Keep Awake)
 @app.route('/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "awake", "time": datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')})
@@ -416,9 +438,7 @@ def trigger_api():
     data = request.get_json()
     req_date = data.get('date')
     chat_id = data.get('chat_id')
-    resp = send_simple_message(chat_id, f"⏳ Generating Executive PDF for <b>{req_date}</b> ...")
-    l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
-    threading.Thread(target=generate_and_send_pdf, args=(req_date, chat_id, False, l_id)).start()
+    threading.Thread(target=generate_and_send_pdf, args=(req_date, chat_id, False, None)).start()
     return jsonify({"status": "processing"})
 
 @app.route('/webhook', methods=['POST'])
@@ -454,7 +474,27 @@ def webhook():
         
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
         
-        if data == 'delete_msg':
+        # មុខងារពង្រីកប៊ូតុង Menu ពេលគេចុច ≡ Menu
+        if data == 'show_main_menu':
+            full_keyboard = {"inline_keyboard": [
+                [{"text": "📅 Daily Report", "callback_data": "ask_specific_date"}],
+                [{"text": "📊 Monthly Report", "callback_data": "ask_monthly_report"}],
+                [{"text": "💬 Help & Support", "url": "https://t.me/OUDOM333"}],
+                [{"text": "❌ Delete Report", "callback_data": "delete_msg"}],
+                [{"text": "⬆️ Close Menu", "callback_data": "hide_main_menu"}]
+            ]}
+            edit_reply_markup(chat_id, c_m_id, full_keyboard)
+            return jsonify({"status": "ok"})
+            
+        # មុខងារបង្រួមប៊ូតុង ពេលគេចុច ⬆️ Close Menu
+        elif data == 'hide_main_menu':
+            min_keyboard = {"inline_keyboard": [
+                [{"text": "≡ Menu", "callback_data": "show_main_menu"}]
+            ]}
+            edit_reply_markup(chat_id, c_m_id, min_keyboard)
+            return jsonify({"status": "ok"})
+
+        elif data == 'delete_msg':
             delete_message(chat_id, c_m_id)
             return jsonify({"status": "ok"})
             
@@ -467,16 +507,17 @@ def webhook():
                 if len(curr) == 3 or i == 11: 
                     rows.append(curr)
                     curr = []
-            send_simple_message(chat_id, "📊 Select Month:", {"inline_keyboard": rows})
+            send_simple_message(chat_id, "📅 សូមជ្រើសរើស ខែ ៖", {"inline_keyboard": rows})
             
         elif data.startswith('mreport_'):
             delete_message(chat_id, c_m_id)
             sel_month = data.replace('mreport_', '')
-            resp = send_simple_message(chat_id, f"⏳ {mention_tag}, Generating Monthly PDF for <b>{sel_month}</b> ...")
+            resp = send_simple_message(chat_id, f"⏳ {mention_tag}, generating monthly PDF for <b>{sel_month}</b>...")
             l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
             threading.Thread(target=generate_and_send_pdf, args=(sel_month, chat_id, True, l_id, mention_tag)).start()
             
         elif data == 'ask_specific_date' or data == 'back_to_months':
+            if data == 'back_to_months': delete_message(chat_id, c_m_id)
             months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
             rows, curr = [], []
             year = datetime.now(tz).year
@@ -485,7 +526,7 @@ def webhook():
                 if len(curr) == 3 or i == 11: 
                     rows.append(curr)
                     curr = []
-            send_simple_message(chat_id, "📅 Select Month:", {"inline_keyboard": rows})
+            send_simple_message(chat_id, "📅 សូមជ្រើសរើស ខែ ៖", {"inline_keyboard": rows})
             
         elif data.startswith('month_'):
             delete_message(chat_id, c_m_id)
@@ -498,13 +539,13 @@ def webhook():
                 if len(curr) == 5 or i == days: 
                     rows.append(curr)
                     curr = []
-            rows.append([{"text": "⬅️ Back", "callback_data": "back_to_months"}])
-            send_simple_message(chat_id, f"📅 Select Day for {sel_month}:", {"inline_keyboard": rows})
+            rows.append([{"text": "⬅️ ត្រឡប់ក្រោយ (Back)", "callback_data": "back_to_months"}])
+            send_simple_message(chat_id, f"📅 សូមជ្រើសរើស ថ្ងៃទី សម្រាប់ខែ {sel_month} ៖", {"inline_keyboard": rows})
             
         elif data.startswith('report_'):
             delete_message(chat_id, c_m_id)
             sel_date = data.replace('report_', '')
-            resp = send_simple_message(chat_id, f"⏳ {mention_tag}, Generating Daily PDF for <b>{sel_date}</b> ...")
+            resp = send_simple_message(chat_id, f"⏳ {mention_tag}, generating daily PDF for <b>{sel_date}</b>...")
             l_id = resp.json().get('result', {}).get('message_id') if resp and resp.status_code == 200 else None
             threading.Thread(target=generate_and_send_pdf, args=(sel_date, chat_id, False, l_id, mention_tag)).start()
             
